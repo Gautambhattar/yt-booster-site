@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>YT Booster Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      margin: 0;
+      padding: 0;
+    }
+    .topbar {
+      background-color: #111;
+      color: white;
+      padding: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .tabs {
+      display: flex;
+      background: #e0e0e0;
+      padding: 1rem;
+      gap: 1rem;
+      border-bottom: 1px solid #ccc;
+    }
+    .tabs button {
+      background: white;
+      border: 1px solid #ccc;
+      padding: 10px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .tabs button:hover {
+      background: #ddd;
+    }
+    .tab-content {
+      display: none;
+      padding: 2rem;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    input, select {
+      padding: 12px;
+      margin: 10px 0;
+      width: 100%;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    .submit-btn {
+      background: #0f9d58;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 5px;
+    }
+    .submit-btn:hover:not(:disabled) {
+      background: #0c7b44;
+    }
+    .submit-btn:disabled {
+      background: #a5d6a7;
+      cursor: not-allowed;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background: #444;
+      color: white;
+    }
+    a {
+      color: #0f9d58;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    label {
+      font-weight: 600;
+      margin-top: 10px;
+      display: block;
+    }
+  </style>
+
+  <!-- Cashfree Drop Checkout JS (Sandbox) -->
+  <script src="https://sdk.cashfree.com/js/ui/2.0.0/cashfree.sandbox.js"></script>
+</head>
+<body>
+  <div class="topbar">
+    <div><b>YT Booster Dashboard</b></div>
+    <div id="userInfo">Loading...</div>
+  </div>
+
+  <div class="tabs">
+    <button onclick="showTab('subs')">📈 Subscribers</button>
+    <button onclick="showTab('views')">👁️ Views + Watch Time</button>
+    <button onclick="showTab('recharge')">💳 Recharge</button>
+    <button onclick="showTab('orders')">📋 My Orders</button>
+    <button onclick="window.location.href='/logout'">🚪 Logout</button>
+  </div>
+
+  <!-- Subscribers Tab -->
+  <div id="subs" class="tab-content active">
+    <h3>📈 Increase Subscribers</h3>
+    <form onsubmit="return submitOrder(event, 'subscribers')">
+      <input type="url" name="url" placeholder="Enter Video URL" required />
+      <select name="amount" required>
+        <option value="20">15 Subs - ₹20</option>
+        <option value="40">35 Subs - ₹40</option>
+        <option value="80">75 Subs - ₹80</option>
+        <option value="130">200 Subs - ₹130</option>
+      </select>
+      <button class="submit-btn" type="submit">Place Order</button>
+    </form>
+    <p id="subsMsg"></p>
+  </div>
+
+  <!-- Views Tab -->
+  <div id="views" class="tab-content">
+    <h3>👁️ Views & Watch Time</h3>
+    <form onsubmit="return submitOrder(event, 'views_watch')">
+      <input type="url" name="url" placeholder="Enter Video URL" required />
+      <select name="amount" required>
+        <option value="20">15 Views + 2 Hours - ₹20</option>
+        <option value="40">30 Views + 4 Hours - ₹40</option>
+        <option value="80">60 Views + 8 Hours - ₹80</option>
+        <option value="120">120 Views + 16 Hours - ₹120</option>
+      </select>
+      <button class="submit-btn" type="submit">Place Order</button>
+    </form>
+    <p id="viewsMsg"></p>
+  </div>
+
+  <!-- Recharge Tab -->
+  <div id="recharge" class="tab-content">
+    <h3>💳 Recharge Wallet</h3>
+    <label for="rechargeAmount">Enter Amount (₹):</label>
+    <input type="number" id="rechargeAmount" min="1" placeholder="e.g. 50" required />
+
+    <label for="rechargeEmail">Enter Email:</label>
+    <input type="email" id="rechargeEmail" placeholder="your.email@example.com" required />
+
+    <label for="rechargeMobile">Enter Mobile Number:</label>
+    <input type="tel" id="rechargeMobile" placeholder="10-digit mobile number" pattern="[0-9]{10}" maxlength="10" required />
+
+    <button class="submit-btn" id="payBtn" onclick="payWithCashfree(event)">Proceed to Pay</button>
+    <p id="paymentMsg"></p>
+    <!-- Container for Cashfree Drop Checkout Widget -->
+    <div id="cf-drop-checkout" style="margin-top:15px;"></div>
+  </div>
+
+  <!-- Orders Tab -->
+  <div id="orders" class="tab-content">
+    <h3>📋 Your Orders</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Video URL</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Placed At</th>
+          <th>Admin Message</th>
+        </tr>
+      </thead>
+      <tbody id="ordersTableBody">
+        <tr><td colspan="6">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    let userBalance = 0;
+    let userEmail = '';
+
+    function showTab(id) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      if (id === 'orders') loadOrders();
+    }
+
+    async function loadUserInfo() {
+      try {
+        const res = await fetch('/session-info');
+        const data = await res.json();
+        userBalance = data.balance;
+        userEmail = data.email;
+        document.getElementById('userInfo').innerText = `${data.email} | ₹${data.balance}`;
+      } catch (err) {
+        document.getElementById('userInfo').innerText = "⚠️ Failed to load user";
+      }
+    }
+
+    async function submitOrder(e, service) {
+      e.preventDefault();
+      const form = e.target;
+      const url = form.url.value.trim();
+      const amount = form.amount.value.trim();
+
+      if (parseInt(amount) > userBalance) {
+        alert('❌ Not enough balance!');
+        return;
+      }
+
+      try {
+        const res = await fetch('/place-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, service, amount })
+        });
+
+        const text = await res.text();
+        form.reset();
+
+        if (service === 'subscribers') {
+          document.getElementById('subsMsg').innerText = text;
+        } else {
+          document.getElementById('viewsMsg').innerText = text;
+        }
+
+        await loadUserInfo();
+      } catch {
+        alert('⚠️ Failed to place order. Please try again.');
+      }
+    }
+
+    async function loadOrders() {
+      try {
+        const res = await fetch('/my-orders');
+        const orders = await res.json();
+
+        const tbody = document.getElementById('ordersTableBody');
+
+        if (!orders.length) {
+          tbody.innerHTML = `<tr><td colspan="6">No orders found.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = '';
+        orders.forEach(order => {
+          const createdAt = order.createdAt && order.createdAt._seconds
+            ? new Date(order.createdAt._seconds * 1000).toLocaleString()
+            : '';
+
+          const row = `
+            <tr>
+              <td>${order.service}</td>
+              <td><a href="${order.url}" target="_blank" rel="noopener noreferrer">View</a></td>
+              <td>₹${order.amount}</td>
+              <td>${order.status}</td>
+              <td>${createdAt}</td>
+              <td>${order.message || ''}</td>
+            </tr>`;
+          tbody.innerHTML += row;
+        });
+      } catch {
+        document.getElementById('ordersTableBody').innerHTML = `<tr><td colspan="6">Failed to load orders.</td></tr>`;
+      }
+    }
+
+    // Updated payWithCashfree to send dynamic email and mobile
+    async function payWithCashfree(event) {
+      if (event) event.preventDefault();
+
+      const amountInput = document.getElementById("rechargeAmount");
+      const emailInput = document.getElementById("rechargeEmail");
+      const mobileInput = document.getElementById("rechargeMobile");
+      const msg = document.getElementById("paymentMsg");
+      const payBtn = document.getElementById("payBtn");
+
+      msg.innerText = "";
+      document.getElementById("cf-drop-checkout").innerHTML = ""; // Clear previous widget
+
+      // Validation
+      const amount = parseFloat(amountInput.value);
+      const email = emailInput.value.trim();
+      const mobile = mobileInput.value.trim();
+
+      if (!amount || amount < 1) {
+        msg.innerText = "❌ Enter a valid amount";
+        return;
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        msg.innerText = "❌ Enter a valid email address";
+        return;
+      }
+
+      if (!/^\d{10}$/.test(mobile)) {
+        msg.innerText = "❌ Enter a valid 10-digit mobile number";
+        return;
+      }
+
+      payBtn.disabled = true;
+      msg.innerText = "Please wait...";
+
+      try {
+        const res = await fetch('/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, customerEmail: email, customerPhone: mobile })
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(errorText);
+        }
+
+        const data = await res.json();
+
+        if (!data.payment_session_id) {
+          msg.innerText = "⚠️ Payment session not generated";
+          payBtn.disabled = false;
+          return;
+        }
+
+        msg.innerText = "";
+
+        // Initialize and launch Cashfree Drop Checkout
+        const cashfree = new Cashfree({ mode: "sandbox" }); // Change to "production" in live env
+
+        cashfree.checkout({
+          paymentSessionId: data.payment_session_id,
+          redirectTarget: "_self",
+          container: "cf-drop-checkout"
+        });
+
+      } catch (err) {
+        msg.innerText = "⚠️ " + (err.message || "Failed to initiate payment");
+        console.error("Cashfree Error:", err);
+        payBtn.disabled = false;
+      }
+    }
+
+    // Initial load
+    loadUserInfo();
+    showTab('subs');
+  </script>
+</body>
+</html>

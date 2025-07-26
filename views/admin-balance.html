@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Update User Wallet</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    input, button {
+      padding: 10px;
+      font-size: 16px;
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <h2>💰 Admin: Update User Wallet</h2>
+  <form onsubmit="return updateWallet(event)">
+    <label>User Email:</label><br>
+    <input type="email" id="email" required><br>
+    <label>New Balance (₹):</label><br>
+    <input type="number" id="balance" required><br><br>
+    <button type="submit">Update Balance</button>
+  </form>
+  <p id="result"></p>
+
+  <script>
+    async function updateWallet(e) {
+      e.preventDefault();
+      const email = document.getElementById("email").value;
+      const balance = parseInt(document.getElementById("balance").value);
+
+      const res = await fetch('/admin-update-wallet', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ email, balance })
+      });
+
+      const text = await res.text();
+      document.getElementById("result").innerText = text;
+    }
+  </script>
+</body>
+</html>

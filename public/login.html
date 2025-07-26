@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login - YouTube Boost</title>
+
+  <!-- Firebase v8 -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCgku1MNe1wPcpQVTYQXL90cEMvetu4DV4",
+      authDomain: "boost-7805d.firebaseapp.com",
+      projectId: "boost-7805d",
+    };
+    firebase.initializeApp(firebaseConfig);
+  </script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      display: flex;
+      height: 100vh;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+    }
+    .login-container {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+    h2 {
+      margin-bottom: 20px;
+    }
+    .tab-buttons {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 15px;
+    }
+    .tab-buttons button {
+      width: 45%;
+      padding: 10px;
+      border: none;
+      background: #eee;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .tab-buttons button.active {
+      background-color: #ff0000;
+      color: white;
+    }
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    .login-btn {
+      width: 100%;
+      padding: 12px;
+      background-color: #ff0000;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .login-btn:hover {
+      background-color: #cc0000;
+    }
+    #error {
+      color: red;
+      margin-top: 10px;
+    }
+    a {
+      color: #ff0000;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <h2 id="modeTitle">User Login</h2>
+    <div class="tab-buttons">
+      <button id="userTab" class="active" onclick="setMode('user')">User</button>
+      <button id="adminTab" onclick="setMode('admin')">Admin</button>
+    </div>
+    <input type="email" id="email" placeholder="Email" />
+    <input type="password" id="password" placeholder="Password" />
+    <button class="login-btn" onclick="login()">Login</button>
+    <p>Don't have an account? <a href="signup.html">Sign up</a></p>
+    <p id="error"></p>
+  </div>
+
+  <script>
+    const ADMIN_EMAIL = "gautambhattar2005@gmail.com";
+    let loginMode = "user";
+
+    function setMode(mode) {
+      loginMode = mode;
+      document.getElementById("modeTitle").innerText = mode === "admin" ? "Admin Login" : "User Login";
+      document.getElementById("userTab").classList.toggle("active", mode === "user");
+      document.getElementById("adminTab").classList.toggle("active", mode === "admin");
+      document.getElementById("error").innerText = "";
+    }
+
+    async function login() {
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      if (!email || !password) {
+        document.getElementById("error").innerText = "Please enter both email and password.";
+        return;
+      }
+
+      try {
+        const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+        const idToken = await userCredential.user.getIdToken();
+
+        // 🔐 Check if admin is logging through correct tab
+        if (loginMode === 'admin' && email !== ADMIN_EMAIL) {
+          await firebase.auth().signOut();
+          document.getElementById("error").innerText = "❌ You are not authorized as admin.";
+          return;
+        }
+
+        if (loginMode === 'user' && email === ADMIN_EMAIL) {
+          await firebase.auth().signOut();
+          document.getElementById("error").innerText = "❌ Admin cannot login from user tab.";
+          return;
+        }
+
+        const res = await fetch('/sessionLogin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        });
+
+        if (res.ok) {
+          window.location.href = loginMode === 'admin' ? '/admin' : '/dashboard';
+        } else {
+          document.getElementById("error").innerText = "Session login failed.";
+        }
+      } catch (err) {
+        document.getElementById("error").innerText = "Login failed: " + err.message;
+        console.error(err);
+      }
+    }
+
+    setMode('user');
+  </script>
+</body>
+</html>

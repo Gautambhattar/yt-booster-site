@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Panel - Orders & Wallet</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f9f9f9;
+    }
+    h2 {
+      margin-bottom: 10px;
+    }
+    .tabs {
+      margin-bottom: 20px;
+    }
+    .tabs button {
+      margin-right: 10px;
+      padding: 10px 20px;
+      border: none;
+      background: #0f9d58;
+      color: white;
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+    }
+    th {
+      background: #333;
+      color: white;
+    }
+    select, input[type="text"], input[type="email"], input[type="number"] {
+      padding: 6px;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    button.update-btn {
+      padding: 6px 10px;
+      background: #0f9d58;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <h2>👑 Admin Panel</h2>
+
+  <div class="tabs">
+    <button onclick="showTab('orders')">📦 Orders</button>
+    <button onclick="showTab('recharge')">💰 Recharge User</button>
+  </div>
+
+  <!-- Orders Tab -->
+  <div class="tab-content active" id="orders">
+    <table>
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Service</th>
+          <th>Video URL</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Message</th>
+          <th>Update</th>
+        </tr>
+      </thead>
+      <tbody id="ordersBody">
+        <tr><td colspan="7">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Recharge Tab -->
+  <div class="tab-content" id="recharge">
+    <h3>💰 Recharge User Wallet</h3>
+    <form onsubmit="return rechargeUser(event)">
+      <label>User Email:</label><br>
+      <input type="email" id="rechargeEmail" required><br>
+      <label>New Balance (₹):</label><br>
+      <input type="number" id="rechargeAmount" required><br>
+      <button type="submit" class="update-btn">Update Wallet</button>
+    </form>
+    <p id="rechargeMsg"></p>
+  </div>
+
+  <script>
+    function showTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.getElementById(tab).classList.add('active');
+    }
+
+    async function loadOrders() {
+      const res = await fetch('/admin-orders');
+      const orders = await res.json();
+      const tbody = document.getElementById('ordersBody');
+      tbody.innerHTML = '';
+
+      orders.forEach(order => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${order.email}</td>
+          <td>${order.service}</td>
+          <td><a href="${order.url}" target="_blank">🔗 Link</a></td>
+          <td>₹${order.amount}</td>
+          <td>
+            <select id="status-${order.id}">
+              <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>pending</option>
+              <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>completed</option>
+              <option value="rejected" ${order.status === 'rejected' ? 'selected' : ''}>rejected</option>
+            </select>
+          </td>
+          <td><input type="text" id="message-${order.id}" value="${order.message || ''}" placeholder="Message..." /></td>
+          <td><button class="update-btn" onclick="updateOrder('${order.id}')">Update</button></td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    async function updateOrder(id) {
+      const status = document.getElementById('status-' + id).value;
+      const message = document.getElementById('message-' + id).value;
+
+      const res = await fetch('/update-order', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ orderId: id, status, message })
+      });
+
+      alert(await res.text());
+    }
+
+    async function rechargeUser(e) {
+      e.preventDefault();
+      const email = document.getElementById("rechargeEmail").value;
+      const balance = document.getElementById("rechargeAmount").value;
+
+      const res = await fetch('/admin-update-wallet', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ email, balance })
+      });
+
+      document.getElementById("rechargeMsg").innerText = await res.text();
+    }
+
+    loadOrders();
+  </script>
+</body>
+</html>

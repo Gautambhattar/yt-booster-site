@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pricing - YT Booster</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>YT Booster</h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/pricing.html">Pricing</a>
+    </nav>
+  </header>
+  <main>
+    
+<h2>Pricing Plans</h2>
+<ul>
+  <li><strong>Basic Boost</strong> – ₹99</li>
+  <li><strong>Pro Boost</strong> – ₹199</li>
+  <li><strong>Max Boost</strong> – ₹299</li>
+</ul>
+<button onclick="makePayment(9900)">Buy Basic (₹99)</button>
+<button onclick="makePayment(19900)">Buy Pro (₹199)</button>
+<button onclick="makePayment(29900)">Buy Max (₹299)</button>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+async function makePayment(amount) {
+  const res = await fetch('/create-order', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ amount })
+  });
+  const data = await res.json();
+  const options = {
+    key: data.key,
+    amount: data.amount,
+    currency: "INR",
+    name: "YT Booster",
+    description: "YouTube Promotion Boost",
+    order_id: data.id,
+    handler: function (response) {
+      window.location.href = "/success.html";
+    },
+    modal: {
+      ondismiss: function () {
+        window.location.href = "/fail.html";
+      }
+    }
+  };
+  const rzp = new Razorpay(options);
+  rzp.open();
+}
+</script>
+
+  </main>
+  <footer>&copy; 2025 YT Booster</footer>
+</body>
+</html>
