@@ -13,6 +13,6 @@
     "express-session": "^1.18.2",
     "firebase-admin": "^13.4.0",
     "razorpay": "^2.9.6",
-    "cashfree-pg": "^2.0.0"
+    "cashfree-pg": "^1.0.6"
   }
 }
