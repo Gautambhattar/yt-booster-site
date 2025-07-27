@@ -1,31 +1,72 @@
 require('dotenv').config();
 const express = require('express');
+const session = require('express-session');
 const cors = require('cors');
 const crypto = require('crypto');
 const bodyParser = require('body-parser');
 const axios = require('axios');
+const path = require('path');
 
 const app = express();
 
+// Session setup
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'secret-key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false } // secure: true only if using HTTPS
+}));
+
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: process.env.FRONTEND_URL || '*',
   credentials: true
 }));
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// In-memory mock DB (replace with real DB in production)
+// In-memory data
+const users = [
+  { email: 'user@example.com', password: 'password123' } // Replace with DB in real app
+];
 const rechargeHistory = [];
 const supportTickets = [];
 
-// Function to generate unique order IDs
+// Generate unique order ID
 function generateOrderId() {
   return 'order_' + crypto.randomBytes(8).toString('hex');
 }
 
-// ==== Cashfree Redirect Flow API Integration ====
+// =========================
+// Auth APIs
+// =========================
+app.post('/login', (req, res) => {
+  const { email, password } = req.body;
+  const user = users.find(u => u.email === email && u.password === password);
+  if (user) {
+    req.session.user = user;
+    res.json({ success: true, email: user.email });
+  } else {
+    res.status(401).json({ error: 'Invalid credentials' });
+  }
+});
 
+app.get('/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ success: true });
+});
+
+app.get('/session-status', (req, res) => {
+  if (req.session.user) {
+    res.json({ loggedIn: true, email: req.session.user.email });
+  } else {
+    res.json({ loggedIn: false });
+  }
+});
+
+// =========================
+// Cashfree Payment API
+// =========================
 app.post('/create-order', async (req, res) => {
   try {
     const { amount, currency, customerEmail, customerPhone } = req.body;
@@ -84,8 +125,6 @@ app.post('/create-order', async (req, res) => {
   }
 });
 
-// ==== Verify Order Status ====
-
 app.post('/verify-payment', async (req, res) => {
   try {
     const { orderId } = req.body;
@@ -116,8 +155,9 @@ app.post('/verify-payment', async (req, res) => {
   }
 });
 
-// ==== Support Chat API ====
-
+// =========================
+// Support Chat
+// =========================
 app.post('/support-message', (req, res) => {
   const { email, message, role = 'user', to } = req.body;
   if (!email || !message) return res.status(400).json({ error: 'Missing fields' });
@@ -152,8 +192,9 @@ app.get('/support-users', (req, res) => {
   res.json(users);
 });
 
-// ==== Recharge History ====
-
+// =========================
+// Recharge History
+// =========================
 app.get('/user-recharges', (req, res) => {
   const { email } = req.query;
   if (!email) return res.status(400).json({ error: 'Email required' });
@@ -162,14 +203,16 @@ app.get('/user-recharges', (req, res) => {
   res.json(history);
 });
 
-// ==== Serve Login Page by Default ====
-
+// =========================
+// Default Route
+// =========================
 app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/login.html');
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// ==== Start Server ====
-
+// =========================
+// Start Server
+// =========================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
