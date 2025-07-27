@@ -106,9 +106,9 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   }
 });
 
-// Serve Frontend
+// Serve Frontend (changed to checkout.html)
 app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html');
+  res.sendFile(__dirname + '/public/checkout.html');
 });
 
 // Start Server
