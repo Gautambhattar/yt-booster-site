@@ -159,6 +159,7 @@
 
     <button class="submit-btn" id="payBtn" onclick="payWithCashfree(event)">Proceed to Pay</button>
     <p id="paymentMsg"></p>
+
     <!-- Container for Cashfree Drop Checkout Widget -->
     <div id="cf-drop-checkout" style="margin-top:15px;"></div>
   </div>
@@ -272,7 +273,6 @@
       }
     }
 
-    // Updated payWithCashfree to send dynamic email and mobile
     async function payWithCashfree(event) {
       if (event) event.preventDefault();
 
@@ -313,7 +313,8 @@
         const res = await fetch('/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount, customerEmail: email, customerPhone: mobile })
+          // Note the proper body keys matching backend expectation
+          body: JSON.stringify({ amount, currency: "INR", customerEmail: email, customerPhone: mobile })
         });
 
         if (!res.ok) {
@@ -323,7 +324,7 @@
 
         const data = await res.json();
 
-        if (!data.payment_session_id) {
+        if (!data.paymentSessionId) {
           msg.innerText = "⚠️ Payment session not generated";
           payBtn.disabled = false;
           return;
@@ -331,13 +332,10 @@
 
         msg.innerText = "";
 
-        // Initialize and launch Cashfree Drop Checkout
-        const cashfree = new Cashfree({ mode: "sandbox" }); // Change to "production" in live env
-
-        cashfree.checkout({
-          paymentSessionId: data.payment_session_id,
-          redirectTarget: "_self",
-          container: "cf-drop-checkout"
+        // Use Cashfree Drop Checkout v2 JS API
+        window.cashfree.drop({
+          paymentSessionId: data.paymentSessionId,
+          container: "#cf-drop-checkout"
         });
 
       } catch (err) {
