@@ -8,7 +8,6 @@ require('dotenv').config();
 const { getFirestore } = require('firebase-admin/firestore');
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-// Then use serviceAccount as usual
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,7 +19,7 @@ admin.initializeApp({
 });
 const db = getFirestore();
 
-// Cashfree (TEST mode) credentials
+// Cashfree credentials
 const CF_CLIENT_ID = process.env.CASHFREE_APP_ID;
 const CF_CLIENT_SECRET = process.env.CASHFREE_SECRET_KEY;
 const CF_ENV = 'https://sandbox.cashfree.com/pg';
@@ -45,13 +44,11 @@ app.post('/sessionLogin', async (req, res) => {
   try {
     const decoded = await admin.auth().verifyIdToken(req.body.idToken);
     req.session.user = decoded;
-
     const userRef = db.collection('users').doc(decoded.uid);
     const doc = await userRef.get();
     if (!doc.exists) {
       await userRef.set({ wallet: 0, email: decoded.email });
     }
-
     res.send('Login success');
   } catch (err) {
     console.error('Login error:', err);
@@ -59,7 +56,7 @@ app.post('/sessionLogin', async (req, res) => {
   }
 });
 
-// Routes
+// Pages
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/dashboard', ensureAuth, (_, res) => res.sendFile(path.join(__dirname, 'views', 'dashboard.html')));
 app.get('/admin', ensureAuth, (req, res) => {
@@ -72,7 +69,6 @@ app.get('/admin-balance', ensureAuth, (req, res) => {
 });
 app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login.html')));
 
-// Session Info
 app.get('/session-info', ensureAuth, async (req, res) => {
   try {
     const uid = req.session.user.uid;
@@ -84,15 +80,13 @@ app.get('/session-info', ensureAuth, async (req, res) => {
   }
 });
 
-// ✅ Cashfree Integration (TEST mode) with dynamic inputs
+// Create Cashfree Order
 app.post("/create-order", ensureAuth, async (req, res) => {
   try {
-    // Parse values from request body
     const orderAmount = typeof req.body.amount !== "undefined" ? Number(req.body.amount) : null;
     const customerEmail = req.body.customerEmail || req.session.user.email || "";
     const customerPhone = req.body.customerPhone || "9999999999";
 
-    // Basic validations
     if (!orderAmount || isNaN(orderAmount) || orderAmount <= 0) {
       return res.status(400).send("Invalid or missing order amount");
     }
@@ -103,7 +97,6 @@ app.post("/create-order", ensureAuth, async (req, res) => {
       return res.status(400).send("Invalid or missing customer phone");
     }
 
-    // Authenticate with Cashfree
     const authRes = await axios.post(CF_AUTH_URL, {}, {
       headers: {
         'Content-Type': 'application/json',
@@ -115,23 +108,21 @@ app.post("/create-order", ensureAuth, async (req, res) => {
     const token = authRes.data.data.token;
     const orderId = "order_" + Date.now();
 
-    // Prepare Cashfree order payload
     const orderPayload = {
-      orderId: orderId,
-      orderAmount: orderAmount,
-      orderCurrency: "INR",
-      customerDetails: {
-        customerId: req.session.user.uid,
-        customerEmail,
-        customerPhone
+      order_id: orderId,
+      order_amount: orderAmount,
+      order_currency: "INR",
+      customer_details: {
+        customer_id: req.session.user.uid,
+        customer_email: customerEmail,
+        customer_phone: customerPhone
       },
-      orderMeta: {
-        returnUrl: `http://localhost:${PORT}/payment-success?order_id=${orderId}&amount=${orderAmount}`
+      order_meta: {
+        return_url: `http://localhost:${PORT}/payment-success?order_id=${orderId}`
       }
     };
 
-    // Create order
-    const orderRes = await axios.post(`${CF_ENV}/orders`, orderPayload, {
+    const orderRes = await axios.post(`${CF_ENV}/v1/orders`, orderPayload, {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -139,18 +130,16 @@ app.post("/create-order", ensureAuth, async (req, res) => {
     });
 
     res.json({ payment_session_id: orderRes.data.data.payment_session_id });
-
   } catch (error) {
     console.error("Cashfree Error:", error.response?.data || error.message || error);
     res.status(500).send("Payment initiation failed");
   }
 });
 
-// ✅ Payment Success → Add balance
+// Confirm and Add Wallet
 app.get('/payment-success', ensureAuth, async (req, res) => {
   const amount = parseInt(req.query.amount);
   const uid = req.session.user.uid;
-
   try {
     const userRef = db.collection('users').doc(uid);
     const doc = await userRef.get();
@@ -162,21 +151,17 @@ app.get('/payment-success', ensureAuth, async (req, res) => {
   }
 });
 
-// ✅ Place Order
+// Order Placement
 app.post('/place-order', ensureAuth, async (req, res) => {
   const { url, service, amount } = req.body;
   const uid = req.session.user.uid;
   const orderAmount = parseInt(amount);
-
   try {
     const userRef = db.collection('users').doc(uid);
     const doc = await userRef.get();
     const balance = doc.exists ? doc.data().wallet || 0 : 0;
-
     if (balance < orderAmount) return res.send('❌ Not enough balance. Please recharge.');
-
     await userRef.update({ wallet: balance - orderAmount });
-
     await db.collection('orders').add({
       uid,
       email: req.session.user.email,
@@ -186,14 +171,13 @@ app.post('/place-order', ensureAuth, async (req, res) => {
       status: 'pending',
       createdAt: new Date()
     });
-
     res.send('✅ Order placed successfully!');
   } catch (err) {
     res.status(500).send('⚠️ Order failed');
   }
 });
 
-// ✅ My Orders
+// Order Listings
 app.get('/my-orders', ensureAuth, async (req, res) => {
   try {
     const uid = req.session.user.uid;
@@ -201,7 +185,6 @@ app.get('/my-orders', ensureAuth, async (req, res) => {
       .where('uid', '==', uid)
       .orderBy('createdAt', 'desc')
       .get();
-
     const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(orders);
   } catch (err) {
@@ -209,7 +192,7 @@ app.get('/my-orders', ensureAuth, async (req, res) => {
   }
 });
 
-// ✅ Admin: All Orders
+// Admin Features
 app.get('/admin-orders', ensureAuth, async (req, res) => {
   if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
   try {
@@ -221,7 +204,6 @@ app.get('/admin-orders', ensureAuth, async (req, res) => {
   }
 });
 
-// ✅ Admin: Update Order
 app.post('/update-order', ensureAuth, async (req, res) => {
   const { orderId, status, message } = req.body;
   if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
@@ -233,7 +215,6 @@ app.post('/update-order', ensureAuth, async (req, res) => {
   }
 });
 
-// ✅ Admin: Update Wallet
 app.post('/admin-update-wallet', ensureAuth, async (req, res) => {
   if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
   const { email, balance } = req.body;
