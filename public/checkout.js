@@ -1,38 +1,50 @@
-// public/checkout.js
 document.addEventListener('DOMContentLoaded', () => {
-  const cashfreeCF = Cashfree({ mode: process.env.CASHFREE_ENV || 'TEST' });
+  const cashfreeCF = Cashfree({ mode: 'sandbox' }); // Change to 'production' when deploying live
   const form = document.getElementById('paymentForm');
   const messageDiv = document.getElementById('message');
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    messageDiv.textContent = 'Initiating payment...';
-
     const amount = document.getElementById('amount').value;
     const email = document.getElementById('email').value;
     const phone = document.getElementById('phone').value;
 
+    if (!amount || !email || !phone || phone.length !== 10) {
+      messageDiv.textContent = '⚠️ Please enter valid inputs.';
+      return;
+    }
+
+    messageDiv.textContent = 'Creating order...';
+    form.querySelector('button').disabled = true;
+
     try {
-      // 1. Create order
       const createResp = await fetch('/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount, currency: 'INR', customerEmail: email, customerPhone: phone })
       });
-      const { paymentSessionId, orderId } = await createResp.json();
 
-      // 2. Invoke Cashfree Checkout
+      if (!createResp.ok) {
+        const errText = await createResp.text();
+        throw new Error(errText);
+      }
+
+      const { paymentSessionId } = await createResp.json();
       cashfreeCF.checkout({ paymentSessionId, redirectTarget: '_self' });
+
     } catch (err) {
       console.error('Checkout Error:', err);
-      messageDiv.textContent = 'Failed to initiate payment.';
+      messageDiv.textContent = '❌ Payment failed. Please try again.';
+    } finally {
+      form.querySelector('button').disabled = false;
     }
   });
 
-  // Handle return from Cashfree
+  // After redirect from Cashfree
   if (window.location.pathname === '/payment-success') {
     const params = new URLSearchParams(window.location.search);
     const orderId = params.get('order_id');
+
     if (orderId) {
       fetch('/verify-payment', {
         method: 'POST',
