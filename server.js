@@ -7,6 +7,7 @@ const axios = require('axios');
 
 const app = express();
 
+// Middleware
 app.use(cors({
   origin: process.env.FRONTEND_URL,
   credentials: true
@@ -14,15 +15,16 @@ app.use(cors({
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
+// In-memory mock DB (replace with real DB in production)
+const rechargeHistory = [];
+const supportTickets = [];
+
+// Function to generate unique order IDs
 function generateOrderId() {
   return 'order_' + crypto.randomBytes(8).toString('hex');
 }
 
-// In-memory mock DB (replace with DB for production)
-const rechargeHistory = [];
-const supportTickets = [];
-
-// ==== Payment Flow (Using Cashfree REST API directly) ====
+// ==== Cashfree Redirect Flow API Integration ====
 
 app.post('/create-order', async (req, res) => {
   try {
@@ -82,6 +84,8 @@ app.post('/create-order', async (req, res) => {
   }
 });
 
+// ==== Verify Order Status ====
+
 app.post('/verify-payment', async (req, res) => {
   try {
     const { orderId } = req.body;
@@ -112,7 +116,7 @@ app.post('/verify-payment', async (req, res) => {
   }
 });
 
-// ==== Support Chat ====
+// ==== Support Chat API ====
 
 app.post('/support-message', (req, res) => {
   const { email, message, role = 'user', to } = req.body;
@@ -158,10 +162,10 @@ app.get('/user-recharges', (req, res) => {
   res.json(history);
 });
 
-// ==== Serve Static ====
+// ==== Serve Login Page by Default ====
 
 app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/checkout.html');
+  res.sendFile(__dirname + '/public/login.html');
 });
 
 // ==== Start Server ====
