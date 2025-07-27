@@ -7,7 +7,7 @@ const axios = require('axios');
 require('dotenv').config();
 const { getFirestore } = require('firebase-admin/firestore');
 
-const serviceAccount = require('./firebase-service-account.json');
+const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
