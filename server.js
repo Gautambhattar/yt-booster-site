@@ -6,10 +6,23 @@ const crypto = require('crypto');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const path = require('path');
+const admin = require('firebase-admin');
 
 const app = express();
 
+// =========================
+// 🔐 Firebase Admin Init
+// =========================
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: process.env.FIREBASE_DB_URL || "https://your-project-id.firebaseio.com" // Replace this if needed
+});
+const db = admin.firestore(); // Optional, if you're using Firestore
+
+// =========================
 // Session setup
+// =========================
 app.use(session({
   secret: process.env.SESSION_SECRET || 'secret-key',
   resave: false,
@@ -17,7 +30,9 @@ app.use(session({
   cookie: { secure: false } // secure: true only if using HTTPS
 }));
 
+// =========================
 // Middleware
+// =========================
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
   credentials: true
@@ -25,14 +40,18 @@ app.use(cors({
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// In-memory data
+// =========================
+// In-memory Data
+// =========================
 const users = [
   { email: 'user@example.com', password: 'password123' } // Replace with DB in real app
 ];
 const rechargeHistory = [];
 const supportTickets = [];
 
-// Generate unique order ID
+// =========================
+// Helpers
+// =========================
 function generateOrderId() {
   return 'order_' + crypto.randomBytes(8).toString('hex');
 }
@@ -61,6 +80,18 @@ app.get('/session-status', (req, res) => {
     res.json({ loggedIn: true, email: req.session.user.email });
   } else {
     res.json({ loggedIn: false });
+  }
+});
+
+// =========================
+// Firebase Test Route (Optional)
+// =========================
+app.get('/firebase-user/:email', async (req, res) => {
+  try {
+    const userRecord = await admin.auth().getUserByEmail(req.params.email);
+    res.json(userRecord);
+  } catch (error) {
+    res.status(404).json({ error: 'User not found in Firebase' });
   }
 });
 
@@ -211,7 +242,7 @@ app.get('/', (req, res) => {
 });
 
 // =========================
-// Start Server
+// Server Start
 // =========================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
