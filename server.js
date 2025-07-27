@@ -1,233 +1,174 @@
-const express = require('express');
-const session = require('express-session');
-const bodyParser = require('body-parser');
-const admin = require('firebase-admin');
-const path = require('path');
-const axios = require('axios');
-require('dotenv').config();
-const { getFirestore } = require('firebase-admin/firestore');
-
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const crypto = require("crypto");
+const bodyParser = require("body-parser");
+const { Cashfree } = require("cashfree-pg");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const ADMIN_EMAIL = 'gautambhattar2005@gmail.com';
 
-// Firebase Init
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+const cashfree = new Cashfree({
+  env: process.env.CASHFREE_ENV,
+  appId: process.env.CASHFREE_APP_ID,
+  secretKey: process.env.CASHFREE_SECRET_KEY,
 });
-const db = getFirestore();
 
-// Cashfree credentials
-const CF_CLIENT_ID = process.env.CASHFREE_APP_ID;
-const CF_CLIENT_SECRET = process.env.CASHFREE_SECRET_KEY;
-const CF_ENV = 'https://sandbox.cashfree.com/pg';
-const CF_AUTH_URL = `${CF_ENV}/v1/auth/login`;
-
-app.use(express.static('public'));
+app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(session({
-  secret: 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-}));
+app.use(express.static("public"));
 
-function ensureAuth(req, res, next) {
-  if (req.session.user) return next();
-  return res.redirect('/login.html');
-}
+// In-memory storage
+const rechargeHistory = [];
+const supportTickets = [];
 
-// Firebase Login
-app.post('/sessionLogin', async (req, res) => {
-  try {
-    const decoded = await admin.auth().verifyIdToken(req.body.idToken);
-    req.session.user = decoded;
-    const userRef = db.collection('users').doc(decoded.uid);
-    const doc = await userRef.get();
-    if (!doc.exists) {
-      await userRef.set({ wallet: 0, email: decoded.email });
-    }
-    res.send('Login success');
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(401).send('Unauthorized');
+const generateOrderId = () =>
+  "order_" + crypto.randomBytes(8).toString("hex");
+
+// ===============================
+// ✅ Create Cashfree Order
+// ===============================
+app.post("/create-order", async (req, res) => {
+  const { amount, currency, customerEmail, customerPhone } = req.body;
+
+  if (!amount || !currency || !customerEmail || !customerPhone) {
+    return res.status(400).json({ error: "Missing required fields" });
   }
-});
 
-// Pages
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
-app.get('/dashboard', ensureAuth, (_, res) => res.sendFile(path.join(__dirname, 'views', 'dashboard.html')));
-app.get('/admin', ensureAuth, (req, res) => {
-  if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
-  res.sendFile(path.join(__dirname, 'views', 'admin.html'));
-});
-app.get('/admin-balance', ensureAuth, (req, res) => {
-  if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
-  res.sendFile(path.join(__dirname, 'views', 'admin-balance.html'));
-});
-app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login.html')));
+  const orderId = generateOrderId();
 
-app.get('/session-info', ensureAuth, async (req, res) => {
+  const orderPayload = {
+    order_id: orderId,
+    order_amount: amount,
+    order_currency: currency,
+    customer_details: {
+      customer_id: "cust_" + crypto.randomBytes(4).toString("hex"),
+      customer_email: customerEmail,
+      customer_phone: customerPhone,
+    },
+    order_meta: {
+      return_url: `${process.env.FRONTEND_URL}/payment-success?order_id=${orderId}`,
+    },
+  };
+
   try {
-    const uid = req.session.user.uid;
-    const doc = await db.collection('users').doc(uid).get();
-    const wallet = doc.exists ? doc.data().wallet || 0 : 0;
-    res.json({ email: req.session.user.email, balance: wallet });
-  } catch (err) {
-    res.status(500).send('Failed to get session info');
-  }
-});
+    const response = await cashfree.orders.create(orderPayload);
 
-// Create Cashfree Order
-app.post("/create-order", ensureAuth, async (req, res) => {
-  try {
-    const orderAmount = typeof req.body.amount !== "undefined" ? Number(req.body.amount) : null;
-    const customerEmail = req.body.customerEmail || req.session.user.email || "";
-    const customerPhone = req.body.customerPhone || "9999999999";
-
-    if (!orderAmount || isNaN(orderAmount) || orderAmount <= 0) {
-      return res.status(400).send("Invalid or missing order amount");
-    }
-    if (!customerEmail || typeof customerEmail !== "string") {
-      return res.status(400).send("Invalid or missing customer email");
-    }
-    if (!customerPhone || !/^\d{10}$/.test(customerPhone)) {
-      return res.status(400).send("Invalid or missing customer phone");
-    }
-
-    const authRes = await axios.post(CF_AUTH_URL, {}, {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-client-id': CF_CLIENT_ID,
-        'x-client-secret': CF_CLIENT_SECRET
-      }
+    rechargeHistory.push({
+      orderId,
+      email: customerEmail,
+      amount,
+      phone: customerPhone,
+      status: "INITIATED",
+      date: new Date().toISOString(),
     });
 
-    const token = authRes.data.data.token;
-    const orderId = "order_" + Date.now();
-
-    const orderPayload = {
-      order_id: orderId,
-      order_amount: orderAmount,
-      order_currency: "INR",
-      customer_details: {
-        customer_id: req.session.user.uid,
-        customer_email: customerEmail,
-        customer_phone: customerPhone
-      },
-      order_meta: {
-        return_url: `http://localhost:${PORT}/payment-success?order_id=${orderId}`
-      }
-    };
-
-    const orderRes = await axios.post(`${CF_ENV}/v1/orders`, orderPayload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      }
+    return res.json({
+      paymentSessionId: response.payment_session_id,
+      orderId,
     });
-
-    res.json({ payment_session_id: orderRes.data.data.payment_session_id });
   } catch (error) {
-    console.error("Cashfree Error:", error.response?.data || error.message || error);
-    res.status(500).send("Payment initiation failed");
-  }
-});
-
-// Confirm and Add Wallet
-app.get('/payment-success', ensureAuth, async (req, res) => {
-  const amount = parseInt(req.query.amount);
-  const uid = req.session.user.uid;
-  try {
-    const userRef = db.collection('users').doc(uid);
-    const doc = await userRef.get();
-    const current = doc.exists ? doc.data().wallet || 0 : 0;
-    await userRef.update({ wallet: current + amount });
-    res.redirect('/dashboard');
-  } catch (err) {
-    res.status(500).send('Wallet update failed');
-  }
-});
-
-// Order Placement
-app.post('/place-order', ensureAuth, async (req, res) => {
-  const { url, service, amount } = req.body;
-  const uid = req.session.user.uid;
-  const orderAmount = parseInt(amount);
-  try {
-    const userRef = db.collection('users').doc(uid);
-    const doc = await userRef.get();
-    const balance = doc.exists ? doc.data().wallet || 0 : 0;
-    if (balance < orderAmount) return res.send('❌ Not enough balance. Please recharge.');
-    await userRef.update({ wallet: balance - orderAmount });
-    await db.collection('orders').add({
-      uid,
-      email: req.session.user.email,
-      url,
-      service,
-      amount: orderAmount,
-      status: 'pending',
-      createdAt: new Date()
+    console.error("Cashfree Error:", error.response?.data || error.message);
+    return res.status(500).json({
+      error: error.response?.data?.message || "Payment failed to initiate",
     });
-    res.send('✅ Order placed successfully!');
-  } catch (err) {
-    res.status(500).send('⚠️ Order failed');
   }
 });
 
-// Order Listings
-app.get('/my-orders', ensureAuth, async (req, res) => {
+// ===============================
+// ✅ Verify Cashfree Payment
+// ===============================
+app.post("/verify-payment", async (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) return res.status(400).json({ error: "orderId required" });
+
   try {
-    const uid = req.session.user.uid;
-    const snapshot = await db.collection('orders')
-      .where('uid', '==', uid)
-      .orderBy('createdAt', 'desc')
-      .get();
-    const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.json(orders);
-  } catch (err) {
-    res.status(500).send('Failed to get orders');
+    const result = await cashfree.orders.get(orderId);
+    const status = result.order_status;
+
+    const index = rechargeHistory.findIndex((r) => r.orderId === orderId);
+    if (index !== -1) rechargeHistory[index].status = status;
+
+    return res.json({
+      orderStatus: status,
+      paymentStatus: status === "PAID" ? "SUCCESS" : "FAILED",
+    });
+  } catch (error) {
+    console.error("Verify Payment Error:", error.message);
+    return res.status(500).json({ error: "Verification failed" });
   }
 });
 
-// Admin Features
-app.get('/admin-orders', ensureAuth, async (req, res) => {
-  if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
+// ===============================
+// ✅ Recharge History
+// ===============================
+app.get("/api/history/:email", (req, res) => {
+  const email = req.params.email;
+  const history = rechargeHistory.filter((r) => r.email === email);
+  return res.json(history);
+});
+
+// ===============================
+// ✅ Submit Support Message
+// ===============================
+app.post("/api/support", (req, res) => {
+  const { email, message, role } = req.body;
+  if (!email || !message)
+    return res.status(400).json({ error: "Missing fields" });
+
+  supportTickets.push({
+    email,
+    role: role || "user",
+    message,
+    timestamp: new Date().toISOString(),
+  });
+
+  return res.json({ success: true });
+});
+
+// ===============================
+// ✅ Fetch Support Messages
+// ===============================
+app.get("/api/support", (req, res) => {
+  const { email, role } = req.query;
+  if (role === "admin") return res.json(supportTickets);
+
+  const userMessages = supportTickets.filter((t) => t.email === email);
+  return res.json(userMessages);
+});
+
+// ===============================
+// ✅ Webhook (optional)
+app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
   try {
-    const snapshot = await db.collection('orders').orderBy('createdAt', 'desc').get();
-    const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.json(orders);
+    const signature = req.headers["x-webhook-signature"];
+    const timestamp = req.headers["x-webhook-timestamp"];
+    cashfree.PGVerifyWebhookSignature(signature, req.body, timestamp);
+
+    const payload = JSON.parse(req.body);
+
+    const index = rechargeHistory.findIndex(
+      (r) => r.orderId === payload.order_id
+    );
+    if (index !== -1) rechargeHistory[index].status = payload.order_status;
+
+    return res.status(200).send("OK");
   } catch (err) {
-    res.status(500).send('Admin order fetch failed');
+    console.error("Invalid Webhook:", err.message);
+    return res.status(400).send("Invalid webhook");
   }
 });
 
-app.post('/update-order', ensureAuth, async (req, res) => {
-  const { orderId, status, message } = req.body;
-  if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
-  try {
-    await db.collection('orders').doc(orderId).update({ status, message });
-    res.send('✅ Order updated');
-  } catch (err) {
-    res.status(500).send('❌ Update failed');
-  }
+// ===============================
+// ✅ Root Route for HTML
+// ===============================
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/public/checkout.html");
 });
 
-app.post('/admin-update-wallet', ensureAuth, async (req, res) => {
-  if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
-  const { email, balance } = req.body;
-  try {
-    const snap = await db.collection('users').where('email', '==', email).get();
-    if (snap.empty) return res.status(404).send('User not found');
-    await snap.docs[0].ref.update({ wallet: parseInt(balance) });
-    res.send('✅ Wallet updated');
-  } catch (err) {
-    res.status(500).send('❌ Failed to update wallet');
-  }
-});
-
+// ===============================
+// ✅ Start Server
+// ===============================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Server running at http://localhost:${PORT}`);
+  console.log(`✅ Server running on http://localhost:${PORT}`);
 });
