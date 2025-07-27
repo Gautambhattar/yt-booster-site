@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cashfree Checkout</title>
+  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+  <script defer src="checkout.js"></script>
+</head>
+<body>
+  <h1>Make a Payment</h1>
+  <form id="paymentForm">
+    <label>Amount (INR): <input type="number" id="amount" value="99.00" step="0.01" required></label><br>
+    <label>Email: <input type="email" id="email" required></label><br>
+    <label>Phone: <input type="tel" id="phone" required></label><br>
+    <button type="submit">Pay Now</button>
+  </form>
+
+  <div id="message"></div>
+
+  <!-- Payment Success Redirect Page -->
+  <script id="successPage" type="text/html">
+    <h2>Payment Status</h2>
+    <p id="status"></p>
+  </script>
+</body>
+</html>
