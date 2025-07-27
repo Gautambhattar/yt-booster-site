@@ -13,6 +13,6 @@
     "express-session": "^1.18.2",
     "firebase-admin": "^13.4.0",
     "razorpay": "^2.9.6",
-    "cashfree-pg-node-sdk": "^1.0.3"
+    "cashfree-pg": "git+https://github.com/cashfree/cashfree-pg-node-sdk.git"
   }
 }
