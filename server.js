@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const bodyParser = require('body-parser');
-const { Cashfree } = require('cashfree-pg');
+const axios = require('axios');
 
 const app = express();
 
@@ -14,12 +14,6 @@ app.use(cors({
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-const cashfree = new Cashfree({
-  env: process.env.CASHFREE_ENV, // 'TEST' or 'PROD'
-  appId: process.env.CASHFREE_APP_ID,
-  secretKey: process.env.CASHFREE_SECRET_KEY
-});
-
 function generateOrderId() {
   return 'order_' + crypto.randomBytes(8).toString('hex');
 }
@@ -28,7 +22,7 @@ function generateOrderId() {
 const rechargeHistory = [];
 const supportTickets = [];
 
-// ==== Payment Flow ====
+// ==== Payment Flow (Using Cashfree REST API directly) ====
 
 app.post('/create-order', async (req, res) => {
   try {
@@ -38,7 +32,7 @@ app.post('/create-order', async (req, res) => {
     }
 
     const orderId = generateOrderId();
-    const orderObj = {
+    const orderData = {
       order_id: orderId,
       order_amount: amount,
       order_currency: currency,
@@ -52,8 +46,20 @@ app.post('/create-order', async (req, res) => {
       }
     };
 
-    const result = await cashfree.orders.create(orderObj);
+    const response = await axios.post(
+      `${process.env.CASHFREE_API_URL}/orders`,
+      orderData,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-version': '2022-09-01',
+          'x-client-id': process.env.CASHFREE_APP_ID,
+          'x-client-secret': process.env.CASHFREE_SECRET_KEY
+        }
+      }
+    );
 
+    const result = response.data;
     if (result.payment_session_id) {
       rechargeHistory.push({
         orderId,
@@ -69,7 +75,7 @@ app.post('/create-order', async (req, res) => {
       return res.status(502).json({ error: 'Invalid response from Cashfree' });
     }
   } catch (err) {
-    console.error('Cashfree Error:', err);
+    console.error('Cashfree Error:', err?.response?.data || err.message);
     return res.status(err.response?.status || 500).json({
       error: err.response?.data?.message || 'Payment initiation failed'
     });
@@ -81,9 +87,18 @@ app.post('/verify-payment', async (req, res) => {
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ error: 'orderId is required' });
 
-    const resp = await cashfree.orders.get(orderId);
-    const status = resp.order_status;
+    const response = await axios.get(
+      `${process.env.CASHFREE_API_URL}/orders/${orderId}`,
+      {
+        headers: {
+          'x-api-version': '2022-09-01',
+          'x-client-id': process.env.CASHFREE_APP_ID,
+          'x-client-secret': process.env.CASHFREE_SECRET_KEY
+        }
+      }
+    );
 
+    const status = response.data.order_status;
     const idx = rechargeHistory.findIndex(r => r.orderId === orderId);
     if (idx !== -1) rechargeHistory[idx].status = status;
 
@@ -92,28 +107,8 @@ app.post('/verify-payment', async (req, res) => {
       paymentStatus: status === 'PAID' ? 'SUCCESS' : 'FAILED'
     });
   } catch (err) {
-    console.error('Verification Error:', err);
+    console.error('Verification Error:', err?.response?.data || err.message);
     res.status(500).json({ error: 'Verification failed' });
-  }
-});
-
-// ==== Optional Cashfree Webhook ====
-
-app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
-  try {
-    const signature = req.headers['x-webhook-signature'];
-    const timestamp = req.headers['x-webhook-timestamp'];
-
-    cashfree.PGVerifyWebhookSignature(signature, req.body, timestamp);
-
-    const payload = JSON.parse(req.body);
-    const idx = rechargeHistory.findIndex(r => r.orderId === payload.order_id);
-    if (idx !== -1) rechargeHistory[idx].status = payload.order_status;
-
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('Webhook Error:', err);
-    res.sendStatus(400);
   }
 });
 
