@@ -8,7 +8,6 @@ const { Cashfree } = require('cashfree-pg');
 
 const app = express();
 
-// CORS configuration
 app.use(cors({
   origin: process.env.FRONTEND_URL,
   credentials: true
@@ -16,19 +15,21 @@ app.use(cors({
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// Initialize Cashfree SDK
 const cashfree = new Cashfree({
   env: process.env.CASHFREE_ENV,
   appId: process.env.CASHFREE_APP_ID,
   secretKey: process.env.CASHFREE_SECRET_KEY
 });
 
-// Utility: Robust Order ID Generator
 function generateOrderId() {
   return 'order_' + crypto.randomBytes(8).toString('hex');
 }
 
-// 1. Create Order & Return Payment Session ID
+// In-memory store for recharge history and tickets
+const rechargeHistory = [];
+const supportTickets = [];
+
+// Create Order & Return Payment Session ID
 app.post('/create-order', async (req, res) => {
   try {
     const { amount, currency, customerEmail, customerPhone } = req.body;
@@ -54,6 +55,14 @@ app.post('/create-order', async (req, res) => {
     const result = await cashfree.orders.create(order);
 
     if (result.payment_session_id) {
+      rechargeHistory.push({
+        orderId,
+        email: customerEmail,
+        amount,
+        phone: customerPhone,
+        date: new Date().toISOString(),
+        status: 'INITIATED'
+      });
       res.json({ paymentSessionId: result.payment_session_id, orderId });
     } else {
       res.status(502).json({ error: 'Invalid response from Cashfree' });
@@ -66,7 +75,7 @@ app.post('/create-order', async (req, res) => {
   }
 });
 
-// 2. Verify Payment Status
+// Verify Payment Status
 app.post('/verify-payment', async (req, res) => {
   try {
     const { orderId } = req.body;
@@ -76,6 +85,13 @@ app.post('/verify-payment', async (req, res) => {
 
     const response = await cashfree.orders.get(orderId);
     const status = response.order_status;
+
+    // update recharge history
+    const index = rechargeHistory.findIndex(r => r.orderId === orderId);
+    if (index !== -1) {
+      rechargeHistory[index].status = status;
+    }
+
     res.json({
       orderStatus: status,
       paymentStatus: status === 'PAID' ? 'SUCCESS' : 'FAILED'
@@ -86,7 +102,7 @@ app.post('/verify-payment', async (req, res) => {
   }
 });
 
-// 3. Webhook Handler for Real-Time Updates
+// Webhook (optional if you want real-time updates)
 app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   try {
     const signature = req.headers['x-webhook-signature'];
@@ -97,7 +113,10 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
     const payload = JSON.parse(req.body);
     console.log('Webhook payload:', payload);
 
-    // TODO: Update your order database based on payload.order_id and payload.order_status
+    const index = rechargeHistory.findIndex(r => r.orderId === payload.order_id);
+    if (index !== -1) {
+      rechargeHistory[index].status = payload.order_status;
+    }
 
     res.status(200).send('OK');
   } catch (error) {
@@ -106,12 +125,49 @@ app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   }
 });
 
-// Serve Frontend (changed to checkout.html)
+// ========== 🔥 New Routes for Recharge History & Support ========== //
+
+// Get Recharge History by Email
+app.get('/api/history/:email', (req, res) => {
+  const { email } = req.params;
+  const userHistory = rechargeHistory.filter(r => r.email === email);
+  res.json(userHistory);
+});
+
+// Submit Support Message (ticket)
+app.post('/api/support', (req, res) => {
+  const { email, message, role } = req.body;
+  if (!email || !message) return res.status(400).json({ error: 'Missing fields' });
+
+  supportTickets.push({
+    email,
+    role: role || 'user',
+    message,
+    timestamp: new Date().toISOString()
+  });
+
+  res.json({ success: true });
+});
+
+// Get all messages (admin can see all, user filtered by email)
+app.get('/api/support', (req, res) => {
+  const email = req.query.email;
+  const role = req.query.role || 'user';
+
+  if (role === 'admin') {
+    return res.json(supportTickets);
+  }
+
+  const filtered = supportTickets.filter(ticket => ticket.email === email);
+  res.json(filtered);
+});
+
+// Serve checkout
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/checkout.html');
 });
 
-// Start Server
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
