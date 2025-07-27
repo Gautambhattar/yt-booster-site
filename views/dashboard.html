@@ -94,6 +94,55 @@
       margin-top: 10px;
       display: block;
     }
+    /* Support chat styling */
+    #supportChat {
+      background: #fff;
+      border: 1px solid #ccc;
+      max-width: 600px;
+      height: 320px;
+      overflow-y: auto;
+      padding: 10px;
+      margin-bottom: 10px
+    }
+    #supportInput {
+      max-width: 450px;
+      width: 70%;
+      display: inline-block;
+    }
+    #supportForm {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+    #adminUserList button {
+      margin:0 3px 7px 0;
+      padding:3px 9px;
+      border:1px solid #bbb;
+      background:#f3f3f3;
+      border-radius:4px;
+      cursor:pointer;
+    }
+    #adminUserList button.selected {
+      background: #0f9d58;
+      color: white;
+      font-weight: bold;
+    }
+    #adminUserList .recharge-btn {
+      background:#fdf6e3;
+      color:#9c7400;
+      margin-left:4px;
+      border-color:#fae59f;
+      font-size: 13px;
+      padding:2px 7px;
+      border-radius:4px;
+    }
+    #adminRechargeHistory th {
+      background: #e9d688;
+      color: #444;
+    }
+    #adminRechargeHistory td {
+      background: #fffceb;
+    }
   </style>
 
   <!-- Cashfree Drop Checkout JS (Sandbox) -->
@@ -110,6 +159,7 @@
     <button onclick="showTab('views')">👁️ Views + Watch Time</button>
     <button onclick="showTab('recharge')">💳 Recharge</button>
     <button onclick="showTab('orders')">📋 My Orders</button>
+    <button onclick="showTab('support')">💬 Support</button>
     <button onclick="window.location.href='/logout'">🚪 Logout</button>
   </div>
 
@@ -159,8 +209,6 @@
 
     <button class="submit-btn" id="payBtn" onclick="payWithCashfree(event)">Proceed to Pay</button>
     <p id="paymentMsg"></p>
-
-    <!-- Container for Cashfree Drop Checkout Widget -->
     <div id="cf-drop-checkout" style="margin-top:15px;"></div>
   </div>
 
@@ -184,16 +232,63 @@
     </table>
   </div>
 
+  <!-- Support Tab -->
+  <div id="support" class="tab-content">
+    <h3 id="supportMainTitle">💬 Support Chat with Admin</h3>
+    <div id="adminUserList" style="margin-bottom:10px;"></div>
+    <div id="adminRechargeHistory" style="max-width:600px;margin:12px 0 25px 0;display:none">
+      <h4>Recharge History for <span id="rechargeUserEmail"></span></h4>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr>
+            <th>Amount (₹)</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th>Txn ID</th>
+          </tr>
+        </thead>
+        <tbody id="rechargeHistoryTable">
+          <tr><td colspan="4" style="text-align:center;color:#888;">Select a user</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="supportChat"></div>
+    <form id="supportForm" onsubmit="return sendSupportMessage(event)">
+      <input type="text" id="supportInput" placeholder="Type your message..." maxlength="500" required />
+      <button class="submit-btn" type="submit">Send</button>
+    </form>
+    <p id="supportMsg"></p>
+  </div>
+
   <script>
+    // ---------- State & constants ----------
     let userBalance = 0;
     let userEmail = '';
+    let isAdmin = false;
+    let supportInterval = null;
+    let supportChatUser = null; // For admin, current user whose chat is open
 
+    // ---------- Tab logic ----------
     function showTab(id) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.getElementById(id).classList.add('active');
       if (id === 'orders') loadOrders();
+      if (id === 'support') {
+        if (isAdmin) loadSupportUsers();
+        loadSupportChat(isAdmin ? supportChatUser : null);
+        // Start polling
+        if (supportInterval) clearInterval(supportInterval);
+        supportInterval = setInterval(() => {
+          if (document.getElementById('support').classList.contains('active'))
+            loadSupportChat(isAdmin ? supportChatUser : null);
+        }, 3000);
+      } else if (supportInterval) {
+        clearInterval(supportInterval);
+        supportInterval = null;
+      }
     }
 
+    // ---------- User Info ----------
     async function loadUserInfo() {
       try {
         const res = await fetch('/session-info');
@@ -201,11 +296,24 @@
         userBalance = data.balance;
         userEmail = data.email;
         document.getElementById('userInfo').innerText = `${data.email} | ₹${data.balance}`;
+        if (data.role === "admin") {
+          isAdmin = true;
+          document.getElementById('supportMainTitle').innerText = "💬 Support Chat with Users";
+          document.getElementById('supportForm').style.display = supportChatUser ? "flex" : "none";
+        } else {
+          isAdmin = false;
+          supportChatUser = null;
+          document.getElementById('adminUserList').style.display = "none";
+          document.getElementById('adminRechargeHistory').style.display = "none";
+          document.getElementById('supportMainTitle').innerText = "💬 Support Chat with Admin";
+          document.getElementById('supportForm').style.display = "flex";
+        }
       } catch (err) {
         document.getElementById('userInfo').innerText = "⚠️ Failed to load user";
       }
     }
 
+    // ---------- Orders ----------
     async function submitOrder(e, service) {
       e.preventDefault();
       const form = e.target;
@@ -216,7 +324,6 @@
         alert('❌ Not enough balance!');
         return;
       }
-
       try {
         const res = await fetch('/place-order', {
           method: 'POST',
@@ -243,20 +350,16 @@
       try {
         const res = await fetch('/my-orders');
         const orders = await res.json();
-
         const tbody = document.getElementById('ordersTableBody');
-
         if (!orders.length) {
           tbody.innerHTML = `<tr><td colspan="6">No orders found.</td></tr>`;
           return;
         }
-
         tbody.innerHTML = '';
         orders.forEach(order => {
           const createdAt = order.createdAt && order.createdAt._seconds
             ? new Date(order.createdAt._seconds * 1000).toLocaleString()
             : '';
-
           const row = `
             <tr>
               <td>${order.service}</td>
@@ -273,6 +376,7 @@
       }
     }
 
+    // ---------- Payment With Cashfree ----------
     async function payWithCashfree(event) {
       if (event) event.preventDefault();
 
@@ -283,9 +387,8 @@
       const payBtn = document.getElementById("payBtn");
 
       msg.innerText = "";
-      document.getElementById("cf-drop-checkout").innerHTML = ""; // Clear previous widget
+      document.getElementById("cf-drop-checkout").innerHTML = "";
 
-      // Validation
       const amount = parseFloat(amountInput.value);
       const email = emailInput.value.trim();
       const mobile = mobileInput.value.trim();
@@ -313,7 +416,6 @@
         const res = await fetch('/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // Note the proper body keys matching backend expectation
           body: JSON.stringify({ amount, currency: "INR", customerEmail: email, customerPhone: mobile })
         });
 
@@ -332,7 +434,6 @@
 
         msg.innerText = "";
 
-        // Use Cashfree Drop Checkout v2 JS API
         window.cashfree.drop({
           paymentSessionId: data.paymentSessionId,
           container: "#cf-drop-checkout"
@@ -340,12 +441,163 @@
 
       } catch (err) {
         msg.innerText = "⚠️ " + (err.message || "Failed to initiate payment");
-        console.error("Cashfree Error:", err);
         payBtn.disabled = false;
       }
     }
 
-    // Initial load
+    // ---------- Admin: Recharge History ----------
+    async function showRechargeHistoryFor(rechargeEmail) {
+      const panel = document.getElementById('adminRechargeHistory');
+      const table = document.getElementById('rechargeHistoryTable');
+      document.getElementById('rechargeUserEmail').innerText = rechargeEmail;
+      panel.style.display = "block";
+      table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#888;">Loading...</td></tr>`;
+      try {
+        const res = await fetch("/user-recharges?email=" + encodeURIComponent(rechargeEmail));
+        const data = await res.json();
+
+        if (!Array.isArray(data) || !data.length) {
+          table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#888;">No recharge history found.</td></tr>`;
+          return;
+        }
+        table.innerHTML = "";
+        data.forEach(history => {
+          const dt = history.timestamp
+            ? new Date(
+                typeof history.timestamp === "number"
+                  ? history.timestamp * 1000
+                  : (history.timestamp._seconds
+                      ? history.timestamp._seconds * 1000
+                      : Date.now())
+              ).toLocaleString()
+            : "";
+          table.innerHTML += `
+            <tr>
+              <td>₹${history.amount}</td>
+              <td>${history.status || ''}</td>
+              <td>${dt}</td>
+              <td>${history.txnId || '-'}</td>
+            </tr>
+          `;
+        });
+      } catch(e) {
+        table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#e53935;">Failed to load history</td></tr>`;
+      }
+    }
+
+    // ---------- Support Chat: Admin User List ----------
+    async function loadSupportUsers() {
+      // Only for admin: populate user selector and recharge button
+      try {
+        const res = await fetch("/support-users");
+        const users = await res.json();
+        const adminListDiv = document.getElementById("adminUserList");
+        adminListDiv.style.display = "block";
+        adminListDiv.innerHTML = '<b>Pick user to chat with:</b> ';
+        users.forEach(u => {
+          // Chat button
+          const btn = document.createElement("button");
+          btn.textContent = u;
+          btn.className = (supportChatUser === u) ? "selected" : "";
+          btn.onclick = function() {
+            supportChatUser = u;
+            document.getElementById("supportForm").style.display = "flex";
+            loadSupportUsers();
+            loadSupportChat(u);
+          };
+          adminListDiv.appendChild(btn);
+
+          // Recharge History button
+          const hisBtn = document.createElement("button");
+          hisBtn.textContent = "💰 Recharge History";
+          hisBtn.className = "recharge-btn";
+          hisBtn.onclick = function(e) {
+            e.preventDefault();
+            showRechargeHistoryFor(u);
+          };
+          adminListDiv.appendChild(hisBtn);
+        });
+        // Hide message form if user not selected
+        if (!supportChatUser) document.getElementById("supportForm").style.display = "none";
+      } catch (err) {
+        document.getElementById("adminUserList").innerHTML = "<span style='color:red'>Failed to load users</span>";
+      }
+    }
+
+    // ---------- Support Chat: List/Send -------
+    async function loadSupportChat(user = null) {
+      // For admin, load messages for picked user. For normal user, loads own chat.
+      let url = "/support-messages";
+      if (user) url += "?user=" + encodeURIComponent(user);
+
+      const chatDiv = document.getElementById("supportChat");
+      chatDiv.innerHTML = "<i>Loading...</i>";
+
+      try {
+        const res = await fetch(url);
+        const msgs = await res.json();
+        chatDiv.innerHTML = "";
+
+        if (!msgs.length) {
+          chatDiv.innerHTML = "<span style='color:#888;'>No messages yet.</span>";
+          return;
+        }
+
+        msgs.forEach(msg => {
+          const isSelf = isAdmin
+            ? (msg.from === "admin")
+            : (msg.from === userEmail);
+          const author = isSelf
+            ? "<span style='color:#333'><b>[You]</b></span>"
+            : "<span style='color:#0f9d58'><b>[Admin]</b></span>";
+          const dt = msg.timestamp
+            ? new Date(
+                typeof msg.timestamp === "number"
+                  ? msg.timestamp * 1000
+                  : (msg.timestamp._seconds
+                      ? msg.timestamp._seconds * 1000
+                      : Date.now())
+              ).toLocaleString()
+            : "";
+          chatDiv.innerHTML += `<div style="margin-bottom:7px;padding:5px 0;word-break:break-word;">
+            ${author}: ${msg.message}
+            <span style="float:right;color:#aaa;font-size:11px">${dt}</span>
+          </div>`;
+        });
+
+        // Scroll to bottom
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+      } catch {
+        chatDiv.innerHTML = "<span style='color:#f44336;'>Failed to load messages</span>";
+      }
+    }
+
+    async function sendSupportMessage(e) {
+      e.preventDefault();
+      const input = document.getElementById("supportInput");
+      const msgArea = document.getElementById("supportMsg");
+      const message = input.value.trim();
+      if (!message) return false;
+      msgArea.innerText = "Sending...";
+      try {
+        const body = { message };
+        if (isAdmin && supportChatUser) body.to = supportChatUser;
+        const res = await fetch("/support-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error(await res.text());
+        msgArea.innerText = "";
+        input.value = "";
+        await loadSupportChat(isAdmin ? supportChatUser : null);
+      } catch (err) {
+        msgArea.innerText = "❌ " + err.message;
+      }
+      return false;
+    }
+
+    // ---------- Init ----------
     loadUserInfo();
     showTab('subs');
   </script>
