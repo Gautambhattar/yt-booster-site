@@ -3,24 +3,86 @@
 <head>
   <meta charset="UTF-8">
   <title>Cashfree Checkout</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
   <script defer src="checkout.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 500px;
+      margin: auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+    form {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+    }
+    label {
+      display: block;
+      margin-bottom: 12px;
+      font-weight: bold;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: #0284C7;
+      color: white;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #a5b4fc;
+      cursor: not-allowed;
+    }
+    #message {
+      margin-top: 15px;
+      color: #dc2626;
+      font-weight: bold;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
   <h1>Make a Payment</h1>
+
   <form id="paymentForm">
-    <label>Amount (INR): <input type="number" id="amount" value="99.00" step="0.01" required></label><br>
-    <label>Email: <input type="email" id="email" required></label><br>
-    <label>Phone: <input type="tel" id="phone" required></label><br>
+    <label>
+      Amount (INR):
+      <input type="number" id="amount" value="99.00" step="0.01" required>
+    </label>
+    <label>
+      Email:
+      <input type="email" id="email" required>
+    </label>
+    <label>
+      Phone:
+      <input type="tel" id="phone" pattern="[0-9]{10}" maxlength="10" required>
+    </label>
     <button type="submit">Pay Now</button>
   </form>
 
   <div id="message"></div>
 
-  <!-- Payment Success Redirect Page -->
+  <!-- Payment Success Page (Injectable Template) -->
   <script id="successPage" type="text/html">
-    <h2>Payment Status</h2>
+    <h2>✅ Payment Successful</h2>
     <p id="status"></p>
+    <a href="/">Return Home</a>
   </script>
 </body>
 </html>
