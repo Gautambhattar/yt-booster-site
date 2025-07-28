@@ -160,6 +160,7 @@
     <button onclick="showTab('recharge')">💳 Recharge</button>
     <button onclick="showTab('orders')">📋 My Orders</button>
     <button onclick="showTab('support')">💬 Support</button>
+    <button onclick="showTab('about')">ℹ️ About Us</button>
     <button onclick="window.location.href='/logout'">🚪 Logout</button>
   </div>
 
@@ -261,6 +262,20 @@
   </div>
 
   <script>
+     <div id="about" class="tab-content">
+    <h3>ℹ️ About Us</h3>
+    <p><strong>Name:</strong> Gautam Bhattar</p>
+    <p><strong>Address:</strong> Ward No. 07, Nokha, Bikaner, Rajasthan, 334803</p>
+    <p><strong>Email:</strong> gautambhattar66@gmail.com</p>
+    <p><strong>Description:</strong> YT Booster is a promotional platform to help YouTubers grow their channels by providing services like increasing subscribers, views, and watch time. The system supports wallet recharge, order tracking, and live support.</p>
+  </div>
+
+  <script>
+    function showTab(id) {
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+  </script>
     // ---------- State & constants ----------
     let userBalance = 0;
     let userEmail = '';
