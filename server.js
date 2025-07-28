@@ -7,21 +7,22 @@ const axios = require('axios');
 require('dotenv').config();
 const { getFirestore } = require('firebase-admin/firestore');
 
-const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
-const app = express();
-const PORT = process.env.PORT || 3000;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
-
 // Firebase Init
+const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 const db = getFirestore();
 
-// Cashfree (TEST mode) credentials
+const app = express();
+const PORT = process.env.PORT || 3000;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+
+// Cashfree credentials and environment config
 const CF_CLIENT_ID = process.env.CASHFREE_APP_ID;
 const CF_CLIENT_SECRET = process.env.CASHFREE_SECRET_KEY;
-const CF_ENV = 'https://api.cashfree.com';
+const IS_PROD = process.env.NODE_ENV === 'production';
+const CF_ENV = IS_PROD ? 'https://api.cashfree.com' : 'https://sandbox.cashfree.com';
 const CF_AUTH_URL = `${CF_ENV}/v1/auth/login`;
 
 app.use(express.static('public'));
@@ -82,26 +83,24 @@ app.get('/session-info', ensureAuth, async (req, res) => {
   }
 });
 
-// ✅ Cashfree Integration (TEST mode) with dynamic inputs
+// ✅ Cashfree: Create Order with user input (production-ready)
 app.post("/create-order", ensureAuth, async (req, res) => {
   try {
-    // Parse values from request body
-    const orderAmount = typeof req.body.amount !== "undefined" ? Number(req.body.amount) : null;
-    const customerEmail = req.body.customerEmail || req.session.user.email || "";
-    const customerPhone = req.body.customerPhone || "9999999999";
+    const { amount, customerEmail, customerPhone, returnUrl } = req.body;
+    const orderAmount = Number(amount);
+    const email = customerEmail || req.session.user.email;
+    const phone = customerPhone || "9999999999";
 
-    // Basic validations
     if (!orderAmount || isNaN(orderAmount) || orderAmount <= 0) {
       return res.status(400).send("Invalid or missing order amount");
     }
-    if (!customerEmail || typeof customerEmail !== "string") {
+    if (!email || typeof email !== "string") {
       return res.status(400).send("Invalid or missing customer email");
     }
-    if (!customerPhone || !/^\d{10}$/.test(customerPhone)) {
-      return res.status(400).send("Invalid or missing customer phone");
+    if (!phone || !/^\d{10}$/.test(phone)) {
+      return res.status(400).send("Invalid or malformed customer phone number");
     }
 
-    // Authenticate with Cashfree
     const authRes = await axios.post(CF_AUTH_URL, {}, {
       headers: {
         'Content-Type': 'application/json',
@@ -111,32 +110,34 @@ app.post("/create-order", ensureAuth, async (req, res) => {
     });
 
     const token = authRes.data.data.token;
-    const orderId = "order_" + Date.now();
+    const orderId = `order_${Date.now()}`;
 
-    // Prepare Cashfree order payload
     const orderPayload = {
-      orderId: orderId,
-      orderAmount: orderAmount,
+      orderId,
+      orderAmount,
       orderCurrency: "INR",
       customerDetails: {
         customerId: req.session.user.uid,
-        customerEmail,
-        customerPhone
+        customerEmail: email,
+        customerPhone: phone
       },
       orderMeta: {
-        returnUrl: `http://localhost:${PORT}/payment-success?order_id=${orderId}&amount=${orderAmount}`
+        returnUrl: returnUrl || `${req.protocol}://${req.get('host')}/payment-success?order_id=${orderId}&amount=${orderAmount}`
       }
     };
 
-    // Create order
-    const orderRes = await axios.post(`${CF_ENV}/orders`, orderPayload, {
+    const orderRes = await axios.post(`${CF_ENV}/pg/orders`, orderPayload, {
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`
       }
     });
 
-    res.json({ payment_session_id: orderRes.data.data.payment_session_id });
+    res.json({
+      success: true,
+      payment_session_id: orderRes.data.data.payment_session_id,
+      order_id: orderId
+    });
 
   } catch (error) {
     console.error("Cashfree Error:", error.response?.data || error.message || error);
