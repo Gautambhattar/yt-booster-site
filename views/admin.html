@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Admin Panel - Orders & Wallet</title>
   <style>
     body {
@@ -23,6 +23,9 @@
       color: white;
       cursor: pointer;
     }
+    .tabs button:hover {
+      background: #0c7b44;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -31,6 +34,8 @@
     th, td {
       border: 1px solid #ddd;
       padding: 8px;
+      vertical-align: middle;
+      word-break: break-word;
     }
     th {
       background: #333;
@@ -40,19 +45,62 @@
       padding: 6px;
       width: 100%;
       margin-bottom: 10px;
+      box-sizing: border-box;
     }
-    button.update-btn {
+    button.update-btn, button.action-btn {
       padding: 6px 10px;
       background: #0f9d58;
       color: white;
       border: none;
       cursor: pointer;
+      border-radius: 3px;
+    }
+    button.action-btn {
+      margin-right: 6px;
+    }
+    button.update-btn:hover, button.action-btn:hover {
+      background: #0c7b44;
     }
     .tab-content {
       display: none;
     }
     .tab-content.active {
       display: block;
+    }
+    /* Responsive table scrolling */
+    @media (max-width: 768px) {
+      table, thead, tbody, th, td, tr {
+        display: block;
+      }
+      thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+      }
+      tr {
+        margin-bottom: 15px;
+      }
+      td {
+        border: none;
+        position: relative;
+        padding-left: 50%;
+      }
+      td:before {
+        position: absolute;
+        top: 6px;
+        left: 10px;
+        width: 45%;
+        white-space: nowrap;
+        font-weight: bold;
+        color: #333;
+      }
+      td:nth-of-type(1):before { content: "Email"; }
+      td:nth-of-type(2):before { content: "Service"; }
+      td:nth-of-type(3):before { content: "Video URL"; }
+      td:nth-of-type(4):before { content: "Amount"; }
+      td:nth-of-type(5):before { content: "Status"; }
+      td:nth-of-type(6):before { content: "Message"; }
+      td:nth-of-type(7):before { content: "Update"; }
     }
   </style>
 </head>
@@ -62,6 +110,7 @@
   <div class="tabs">
     <button onclick="showTab('orders')">📦 Orders</button>
     <button onclick="showTab('recharge')">💰 Recharge User</button>
+    <button onclick="showTab('adminReferrals')">💰 Referral Bonuses</button>
   </div>
 
   <!-- Orders Tab -->
@@ -87,77 +136,200 @@
   <!-- Recharge Tab -->
   <div class="tab-content" id="recharge">
     <h3>💰 Recharge User Wallet</h3>
-    <form onsubmit="return rechargeUser(event)">
-      <label>User Email:</label><br>
+    <form id="rechargeForm" onsubmit="return rechargeUser(event)">
+      <label for="rechargeEmail">User Email:</label><br>
       <input type="email" id="rechargeEmail" required><br>
-      <label>New Balance (₹):</label><br>
-      <input type="number" id="rechargeAmount" required><br>
+
+      <label for="rechargeAmount">New Balance (₹):</label><br>
+      <input type="number" id="rechargeAmount" min="0" step="1" required><br>
+
       <button type="submit" class="update-btn">Update Wallet</button>
     </form>
-    <p id="rechargeMsg"></p>
+    <p id="rechargeMsg" style="margin-top: 10px;"></p>
+  </div>
+
+  <!-- Referral Bonuses Tab -->
+  <div id="adminReferrals" class="tab-content">
+    <h3>🛠️ Pending Referral Bonuses</h3>
+    <div id="pendingList">Loading...</div>
   </div>
 
   <script>
+    // Show selected tab, hide others
     function showTab(tab) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.getElementById(tab).classList.add('active');
+
+      if (tab === 'orders') loadOrders();
+      else if (tab === 'recharge') {
+        clearRechargeForm();
+      }
+      else if (tab === 'adminReferrals') loadPendingReferrals();
     }
 
+    // Clear recharge form inputs and messages
+    function clearRechargeForm() {
+      document.getElementById('rechargeEmail').value = '';
+      document.getElementById('rechargeAmount').value = '';
+      document.getElementById('rechargeMsg').innerText = '';
+    }
+
+    // Load orders from server
     async function loadOrders() {
-      const res = await fetch('/admin-orders');
-      const orders = await res.json();
       const tbody = document.getElementById('ordersBody');
-      tbody.innerHTML = '';
-
-      orders.forEach(order => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${order.email}</td>
-          <td>${order.service}</td>
-          <td><a href="${order.url}" target="_blank">🔗 Link</a></td>
-          <td>₹${order.amount}</td>
-          <td>
-            <select id="status-${order.id}">
-              <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>pending</option>
-              <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>completed</option>
-              <option value="rejected" ${order.status === 'rejected' ? 'selected' : ''}>rejected</option>
-            </select>
-          </td>
-          <td><input type="text" id="message-${order.id}" value="${order.message || ''}" placeholder="Message..." /></td>
-          <td><button class="update-btn" onclick="updateOrder('${order.id}')">Update</button></td>
-        `;
-        tbody.appendChild(row);
-      });
+      tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
+      try {
+        const res = await fetch('/admin-orders');
+        if (!res.ok) throw new Error('Failed to fetch orders');
+        const orders = await res.json();
+        if (orders.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7">No orders found.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = '';
+        orders.forEach(order => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${order.email}</td>
+            <td>${order.service}</td>
+            <td><a href="${order.url}" target="_blank" rel="noopener noreferrer">🔗 Link</a></td>
+            <td>₹${order.amount}</td>
+            <td>
+              <select id="status-${order.id}">
+                <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>pending</option>
+                <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>completed</option>
+                <option value="rejected" ${order.status === 'rejected' ? 'selected' : ''}>rejected</option>
+              </select>
+            </td>
+            <td><input type="text" id="message-${order.id}" value="${order.message || ''}" placeholder="Message..." /></td>
+            <td><button class="update-btn" onclick="updateOrder('${order.id}')">Update</button></td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" style="color:red;">Error loading orders: ${err.message}</td></tr>`;
+      }
     }
 
+    // Update order status and message
     async function updateOrder(id) {
       const status = document.getElementById('status-' + id).value;
-      const message = document.getElementById('message-' + id).value;
+      const message = document.getElementById('message-' + id).value.trim();
 
-      const res = await fetch('/update-order', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ orderId: id, status, message })
-      });
-
-      alert(await res.text());
+      try {
+        const res = await fetch('/update-order', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ orderId: id, status, message })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        alert('Order updated successfully.');
+        loadOrders();
+      } catch (err) {
+        alert('Failed to update order: ' + err.message);
+      }
     }
 
-    async function rechargeUser(e) {
-      e.preventDefault();
-      const email = document.getElementById("rechargeEmail").value;
-      const balance = document.getElementById("rechargeAmount").value;
+    // Recharge user wallet
+    async function rechargeUser(event) {
+      event.preventDefault();
+      const email = document.getElementById("rechargeEmail").value.trim();
+      const balance = document.getElementById("rechargeAmount").value.trim();
 
-      const res = await fetch('/admin-update-wallet', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ email, balance })
-      });
+      if (!email || !balance || Number(balance) < 0) {
+        document.getElementById("rechargeMsg").innerText = "Please enter valid email and balance.";
+        return;
+      }
 
-      document.getElementById("rechargeMsg").innerText = await res.text();
+      document.getElementById("rechargeMsg").innerText = "Updating wallet...";
+
+      try {
+        const res = await fetch('/admin-update-wallet', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ email, balance: Number(balance) })
+        });
+        const text = await res.text();
+        document.getElementById("rechargeMsg").innerText = text;
+        if (res.ok) {
+          clearRechargeForm();
+        }
+      } catch (err) {
+        document.getElementById("rechargeMsg").innerText = "Error updating wallet: " + err.message;
+      }
     }
 
-    loadOrders();
+    // Load pending referral bonuses for admin approval
+    async function loadPendingReferrals() {
+      const container = document.getElementById('pendingList');
+      container.innerHTML = 'Loading...';
+
+      try {
+        const res = await fetch('/admin-pending-referrals');
+        if (!res.ok) throw new Error('Failed to load referral bonuses');
+        const referrals = await res.json();
+
+        if (!referrals.length) {
+          container.innerHTML = '<p>No pending referral bonuses.</p>';
+          return;
+        }
+
+        let html = `<table>
+          <thead>
+            <tr>
+              <th>User Email</th>
+              <th>Referral Code</th>
+              <th>Bonus Amount</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+        referrals.forEach(r => {
+          html += `<tr>
+            <td>${r.userEmail}</td>
+            <td>${r.referralCode}</td>
+            <td>₹${r.bonusAmount}</td>
+            <td>${r.status}</td>
+            <td>
+              <button class="action-btn" onclick="updateReferralStatus('${r.id}', 'approved')">Approve</button>
+              <button class="action-btn" style="background:#e53935;" onclick="updateReferralStatus('${r.id}', 'rejected')">Reject</button>
+            </td>
+          </tr>`;
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+
+      } catch (err) {
+        container.innerHTML = `<p style="color:red;">Error loading referral bonuses: ${err.message}</p>`;
+      }
+    }
+
+    // Approve or reject a referral bonus
+    async function updateReferralStatus(id, status) {
+      if (!confirm(`Are you sure you want to ${status} this referral bonus?`)) return;
+
+      try {
+        const res = await fetch('/admin-update-referral-status', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ id, status })
+        });
+        if (!res.ok) throw new Error(await res.text());
+
+        alert('Referral bonus updated successfully.');
+        loadPendingReferrals();
+      } catch (err) {
+        alert('Failed to update referral status: ' + err.message);
+      }
+    }
+
+    // Initial load - show orders tab data
+    document.addEventListener('DOMContentLoaded', () => {
+      loadOrders();
+    });
   </script>
 </body>
 </html>
