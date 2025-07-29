@@ -77,6 +77,7 @@
       border: 1px solid #ccc;
       padding: 10px;
       text-align: left;
+      word-break: break-word;
     }
     th {
       background: #444;
@@ -143,12 +144,43 @@
     #adminRechargeHistory td {
       background: #fffceb;
     }
+    /* Buffer overlay */
+    #siteLoadingOverlay {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 2000;
+      background: rgba(245,245,245,0.95);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      transition: opacity 0.25s;
+    }
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+    #siteLoadingOverlay.hide {
+      opacity: 0;
+      pointer-events: none;
+    }
   </style>
-
-  <!-- Cashfree Drop Checkout JS (Sandbox) -->
-  <script src="https://sdk.cashfree.com/js/ui/2.0.0/cashfree.sandbox.js"></script>
 </head>
 <body>
+
+  <!-- Loading overlay -->
+  <div id="siteLoadingOverlay">
+    <div style="border:8px solid #f3f3f3; border-top:8px solid #0f9d58; border-radius:50%; width:70px; height:70px; animation:spin 1s linear infinite; margin-bottom:15px;"></div>
+    <div style="color:#232323; font-size:1.15em; letter-spacing:0.02em;">Loading dashboard...</div>
+  </div>
+
   <div class="topbar">
     <div><b>YT Booster Dashboard</b></div>
     <div id="userInfo">Loading...</div>
@@ -160,6 +192,7 @@
     <button onclick="showTab('recharge')">💳 Recharge</button>
     <button onclick="showTab('orders')">📋 My Orders</button>
     <button onclick="showTab('support')">💬 Support</button>
+    <button onclick="showTab('refer')">Refer Us</button>
     <button onclick="showTab('about')">ℹ️ About Us</button>
     <button onclick="window.location.href='/logout'">🚪 Logout</button>
   </div>
@@ -208,9 +241,47 @@
     <label for="rechargeMobile">Enter Mobile Number:</label>
     <input type="tel" id="rechargeMobile" placeholder="10-digit mobile number" pattern="[0-9]{10}" maxlength="10" required />
 
-    <button class="submit-btn" id="payBtn" onclick="payWithCashfree(event)">Proceed to Pay</button>
+    <button class="submit-btn" id="payBtn" onclick="openCustomCheckout(event)">Proceed to Pay</button>
     <p id="paymentMsg"></p>
-    <div id="cf-drop-checkout" style="margin-top:15px;"></div>
+  </div>
+
+  <!-- Custom Checkout Modal for Manual QR & UPI payment -->
+  <div id="customCheckoutModal" style="display:none; position:fixed; left:0; top:0; width:100vw; height:100vh; z-index:3000; background:rgba(0,0,0,0.28); align-items:center; justify-content:center;">
+    <div style="background:white; max-width:360px; width:90%; padding:26px 20px 18px 20px; border-radius:9px; box-shadow:0 7px 23px rgba(0,0,0,.09); position:relative;">
+      <button onclick="closeCustomCheckout()" style="position:absolute;top:6px;right:9px;font-size:20px;background:none;border:none;cursor:pointer;">×</button>
+      <h3 style="margin-top:0">Add Money - Manual Payment</h3>
+      <div>
+        <b>Step 1:</b> Please pay using any <span style="color:#0f9d58">option below</span> for the exact amount.<br>
+        <div style="margin:7px 0;">
+          <label>
+            <input type="radio" name="payMethod" value="qr" checked /> QR Code
+          </label>
+          <label style="margin-left:18px">
+            <input type="radio" name="payMethod" value="upi" /> UPI
+          </label>
+        </div>
+        <div id="qrSection">
+          <div style="margin:12px 0 8px 0;text-align:center;">
+             <!-- Put your QR code image here -->
+             <img id="qrImgUser" src="YOUR_QR_CODE_IMAGE_LINK_HERE" alt="QR" style="width:150px" />
+          </div>
+          <div style="color:#444; font-size:13px; text-align:center;">Scan QR to Pay</div>
+        </div>
+        <div id="upiSection" style="display:none;">
+          <div style="text-align:center; margin: 13px 0 3px 0;font-size:16px;">
+            <b>UPI ID:<br>
+              <span id="upiIdShow" style="color:#0f9d58">yourupi@upi</span>
+            </b>
+          </div>
+          <div style="color:#444;font-size:13px;">Copy the above UPI ID and make the payment from any UPI app.</div>
+        </div>
+      </div>
+      <hr>
+      <b>Step 2:</b> After payment, enter UTR/Reference below:<br>
+      <input type="text" id="userUtrInput" placeholder="Enter UTR / Transaction Ref ID" maxlength="30" style="margin-top:8px;" required />
+      <button class="submit-btn" style="width:100%;margin-top:12px" onclick="submitUTR()">Submit & Request Approval</button>
+      <div id="utrMsg" style="margin-top:10px;color:#0d7813;"></div>
+    </div>
   </div>
 
   <!-- Orders Tab -->
@@ -260,7 +331,19 @@
     </form>
     <p id="supportMsg"></p>
   </div>
-   <div id="about" class="tab-content">
+
+  <!-- Referral Tab -->
+  <div id="refer" class="tab-content">
+    <h3>🙌 Refer Us & Earn</h3>
+    <p><strong>Your Referral Code:</strong> <span id="referralCode">...</span></p>
+    <label for="referralInput">Have a referral code?</label>
+    <input type="text" id="referralInput" placeholder="Enter referral code" />
+    <button class="submit-btn" onclick="submitReferralCode()">Submit Referral</button>
+    <p id="referralStatus" style="color: green;"></p>
+  </div>
+
+  <!-- About Us Tab -->
+  <div id="about" class="tab-content">
     <h3>ℹ️ About Us</h3>
     <p><strong>Name:</strong> Gautam Bhattar</p>
     <p><strong>Address:</strong> Ward No. 07, Nokha, Bikaner, Rajasthan, 334803</p>
@@ -269,70 +352,75 @@
   </div>
 
   <script>
-    function showTab(id) {
-      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-      document.getElementById(id).classList.add('active');
+    // Utility to show/hide loading overlay
+    function showSiteBuffer() {
+      const overlay = document.getElementById('siteLoadingOverlay');
+      if (overlay) overlay.classList.remove('hide');
     }
-  </script>
+    function hideSiteBuffer() {
+      const overlay = document.getElementById('siteLoadingOverlay');
+      if (overlay) overlay.classList.add('hide');
+    }
 
-  <script>
-    
-    // ---------- State & constants ----------
+    // App state variables
     let userBalance = 0;
     let userEmail = '';
     let isAdmin = false;
     let supportInterval = null;
-    let supportChatUser = null; // For admin, current user whose chat is open
+    let supportChatUser = null;
 
-    // ---------- Tab logic ----------
+    // Show selected tab and load tab-specific data
     function showTab(id) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.getElementById(id).classList.add('active');
+
       if (id === 'orders') loadOrders();
       if (id === 'support') {
         if (isAdmin) loadSupportUsers();
         loadSupportChat(isAdmin ? supportChatUser : null);
-        // Start polling
         if (supportInterval) clearInterval(supportInterval);
         supportInterval = setInterval(() => {
-          if (document.getElementById('support').classList.contains('active'))
+          if (document.getElementById('support').classList.contains('active')) {
             loadSupportChat(isAdmin ? supportChatUser : null);
+          }
         }, 3000);
       } else if (supportInterval) {
         clearInterval(supportInterval);
         supportInterval = null;
       }
+      if (id === 'refer') fetchSession(); // refresh referral code
     }
 
-    // ---------- User Info ----------
+    // Load user info including balance, email, etc.
     async function loadUserInfo() {
+      showSiteBuffer();
       try {
         const res = await fetch('/session-info');
         const data = await res.json();
         userBalance = data.balance;
         userEmail = data.email;
         document.getElementById('userInfo').innerText = `${data.email} | ₹${data.balance}`;
-        if (data.role === "admin") {
-          isAdmin = true;
+        isAdmin = (data.role === "admin");
+        if (isAdmin) {
           document.getElementById('supportMainTitle').innerText = "💬 Support Chat with Users";
           document.getElementById('supportForm').style.display = supportChatUser ? "flex" : "none";
         } else {
-          isAdmin = false;
           supportChatUser = null;
           document.getElementById('adminUserList').style.display = "none";
           document.getElementById('adminRechargeHistory').style.display = "none";
           document.getElementById('supportMainTitle').innerText = "💬 Support Chat with Admin";
           document.getElementById('supportForm').style.display = "flex";
         }
-      } catch (err) {
+      } catch {
         document.getElementById('userInfo').innerText = "⚠️ Failed to load user";
       }
+      hideSiteBuffer();
     }
 
-    // ---------- Orders ----------
-    async function submitOrder(e, service) {
-      e.preventDefault();
-      const form = e.target;
+    // Order submission for subscribers or views/watch
+    async function submitOrder(event, service) {
+      event.preventDefault();
+      const form = event.target;
       const url = form.url.value.trim();
       const amount = form.amount.value.trim();
 
@@ -340,13 +428,13 @@
         alert('❌ Not enough balance!');
         return;
       }
+      showSiteBuffer();
       try {
         const res = await fetch('/place-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url, service, amount })
         });
-
         const text = await res.text();
         form.reset();
 
@@ -360,15 +448,18 @@
       } catch {
         alert('⚠️ Failed to place order. Please try again.');
       }
+      hideSiteBuffer();
     }
 
     async function loadOrders() {
+      showSiteBuffer();
       try {
         const res = await fetch('/my-orders');
         const orders = await res.json();
         const tbody = document.getElementById('ordersTableBody');
         if (!orders.length) {
           tbody.innerHTML = `<tr><td colspan="6">No orders found.</td></tr>`;
+          hideSiteBuffer();
           return;
         }
         tbody.innerHTML = '';
@@ -390,120 +481,91 @@
       } catch {
         document.getElementById('ordersTableBody').innerHTML = `<tr><td colspan="6">Failed to load orders.</td></tr>`;
       }
+      hideSiteBuffer();
     }
 
-    // ---------- Payment With Cashfree ----------
-    async function payWithCashfree(event) {
-      if (event) event.preventDefault();
-
-      const amountInput = document.getElementById("rechargeAmount");
-      const emailInput = document.getElementById("rechargeEmail");
-      const mobileInput = document.getElementById("rechargeMobile");
+    // Manual recharge modal open
+    function openCustomCheckout(e) {
+      e.preventDefault();
+      const amt = parseFloat(document.getElementById("rechargeAmount").value.trim());
+      const email = document.getElementById("rechargeEmail").value.trim();
+      const mob = document.getElementById("rechargeMobile").value.trim();
       const msg = document.getElementById("paymentMsg");
-      const payBtn = document.getElementById("payBtn");
-
       msg.innerText = "";
-      document.getElementById("cf-drop-checkout").innerHTML = "";
 
-      const amount = parseFloat(amountInput.value);
-      const email = emailInput.value.trim();
-      const mobile = mobileInput.value.trim();
-
-      if (!amount || amount < 1) {
-        msg.innerText = "❌ Enter a valid amount";
-        return;
-      }
-
+      if (!amt || amt < 1) return msg.innerText = "❌ Enter a valid amount";
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        msg.innerText = "❌ Enter a valid email address";
+      if (!emailRegex.test(email)) return msg.innerText = "❌ Enter a valid email address";
+      if (!/^\d{10}$/.test(mob)) return msg.innerText = "❌ Enter a valid 10-digit mobile number";
+
+      document.getElementById('customCheckoutModal').style.display = "flex";
+      document.getElementById('userUtrInput').value = "";
+      document.getElementById('utrMsg').innerText = "";
+    }
+
+    // Close the manual recharge modal
+    function closeCustomCheckout() {
+      document.getElementById('customCheckoutModal').style.display = "none";
+    }
+
+    // Toggle QR / UPI payment sections in modal
+    document.addEventListener('DOMContentLoaded', function() {
+      const radios = document.querySelectorAll('input[name="payMethod"]');
+      radios.forEach(radio => {
+        radio.addEventListener('change', function() {
+          document.getElementById('qrSection').style.display = this.value === 'qr' ? '' : 'none';
+          document.getElementById('upiSection').style.display = this.value === 'upi' ? '' : 'none';
+        });
+      });
+    });
+
+    // Submit UTR/manual recharge request
+    async function submitUTR() {
+      const amt = parseFloat(document.getElementById("rechargeAmount").value.trim());
+      const email = document.getElementById("rechargeEmail").value.trim();
+      const mob = document.getElementById("rechargeMobile").value.trim();
+      const utr = document.getElementById("userUtrInput").value.trim();
+      const payMethodRadio = [...document.getElementsByName('payMethod')].find(x => x.checked);
+      const payMethod = payMethodRadio ? payMethodRadio.value : 'qr';
+
+      const utrMsg = document.getElementById('utrMsg');
+      utrMsg.style.color = "#0d7813";
+      utrMsg.innerText = "";
+
+      if (!utr || utr.length < 5) {
+        utrMsg.style.color = "#e53935";
+        utrMsg.innerText = "❌ Enter valid UTR/Transaction Ref.";
         return;
       }
-
-      if (!/^\d{10}$/.test(mobile)) {
-        msg.innerText = "❌ Enter a valid 10-digit mobile number";
-        return;
-      }
-
-      payBtn.disabled = true;
-      msg.innerText = "Please wait...";
+      showSiteBuffer();
 
       try {
-        const res = await fetch('/create-order', {
+        const res = await fetch('/manual-recharge-request', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount, currency: "INR", customerEmail: email, customerPhone: mobile })
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            amount: amt,
+            email: email,
+            mobile: mob,
+            utr: utr,
+            method: payMethod
+          })
         });
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(errorText);
-        }
-
-        const data = await res.json();
-
-        if (!data.paymentSessionId) {
-          msg.innerText = "⚠️ Payment session not generated";
-          payBtn.disabled = false;
-          return;
-        }
-
-        msg.innerText = "";
-
-        window.cashfree.drop({
-          paymentSessionId: data.paymentSessionId,
-          container: "#cf-drop-checkout"
-        });
-
+        if (!res.ok) throw new Error(await res.text());
+        closeCustomCheckout();
+        const paymentMsg = document.getElementById("paymentMsg");
+        paymentMsg.innerText = "✅ Payment Request Submitted! Pending admin approval.";
+        paymentMsg.style.color = "#0f9d58";
       } catch (err) {
-        msg.innerText = "⚠️ " + (err.message || "Failed to initiate payment");
-        payBtn.disabled = false;
+        utrMsg.style.color = "#e53935";
+        utrMsg.innerText = "❌ Failed: " + (err.message || "Please try again.");
       }
+      hideSiteBuffer();
     }
 
-    // ---------- Admin: Recharge History ----------
-    async function showRechargeHistoryFor(rechargeEmail) {
-      const panel = document.getElementById('adminRechargeHistory');
-      const table = document.getElementById('rechargeHistoryTable');
-      document.getElementById('rechargeUserEmail').innerText = rechargeEmail;
-      panel.style.display = "block";
-      table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#888;">Loading...</td></tr>`;
-      try {
-        const res = await fetch("/user-recharges?email=" + encodeURIComponent(rechargeEmail));
-        const data = await res.json();
-
-        if (!Array.isArray(data) || !data.length) {
-          table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#888;">No recharge history found.</td></tr>`;
-          return;
-        }
-        table.innerHTML = "";
-        data.forEach(history => {
-          const dt = history.timestamp
-            ? new Date(
-                typeof history.timestamp === "number"
-                  ? history.timestamp * 1000
-                  : (history.timestamp._seconds
-                      ? history.timestamp._seconds * 1000
-                      : Date.now())
-              ).toLocaleString()
-            : "";
-          table.innerHTML += `
-            <tr>
-              <td>₹${history.amount}</td>
-              <td>${history.status || ''}</td>
-              <td>${dt}</td>
-              <td>${history.txnId || '-'}</td>
-            </tr>
-          `;
-        });
-      } catch(e) {
-        table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#e53935;">Failed to load history</td></tr>`;
-      }
-    }
-
-    // ---------- Support Chat: Admin User List ----------
+    // Support chat admin users load
     async function loadSupportUsers() {
-      // Only for admin: populate user selector and recharge button
+      showSiteBuffer();
       try {
         const res = await fetch("/support-users");
         const users = await res.json();
@@ -511,7 +573,6 @@
         adminListDiv.style.display = "block";
         adminListDiv.innerHTML = '<b>Pick user to chat with:</b> ';
         users.forEach(u => {
-          // Chat button
           const btn = document.createElement("button");
           btn.textContent = u;
           btn.className = (supportChatUser === u) ? "selected" : "";
@@ -523,7 +584,6 @@
           };
           adminListDiv.appendChild(btn);
 
-          // Recharge History button
           const hisBtn = document.createElement("button");
           hisBtn.textContent = "💰 Recharge History";
           hisBtn.className = "recharge-btn";
@@ -533,19 +593,16 @@
           };
           adminListDiv.appendChild(hisBtn);
         });
-        // Hide message form if user not selected
         if (!supportChatUser) document.getElementById("supportForm").style.display = "none";
-      } catch (err) {
+      } catch {
         document.getElementById("adminUserList").innerHTML = "<span style='color:red'>Failed to load users</span>";
       }
+      hideSiteBuffer();
     }
 
-    // ---------- Support Chat: List/Send -------
     async function loadSupportChat(user = null) {
-      // For admin, load messages for picked user. For normal user, loads own chat.
       let url = "/support-messages";
       if (user) url += "?user=" + encodeURIComponent(user);
-
       const chatDiv = document.getElementById("supportChat");
       chatDiv.innerHTML = "<i>Loading...</i>";
 
@@ -580,8 +637,6 @@
             <span style="float:right;color:#aaa;font-size:11px">${dt}</span>
           </div>`;
         });
-
-        // Scroll to bottom
         chatDiv.scrollTop = chatDiv.scrollHeight;
       } catch {
         chatDiv.innerHTML = "<span style='color:#f44336;'>Failed to load messages</span>";
@@ -613,9 +668,86 @@
       return false;
     }
 
-    // ---------- Init ----------
-    loadUserInfo();
-    showTab('subs');
+    async function showRechargeHistoryFor(rechargeEmail) {
+      const panel = document.getElementById('adminRechargeHistory');
+      const table = document.getElementById('rechargeHistoryTable');
+      document.getElementById('rechargeUserEmail').innerText = rechargeEmail;
+      panel.style.display = "block";
+      table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#888;">Loading...</td></tr>`;
+      showSiteBuffer();
+      try {
+        const res = await fetch("/user-recharges?email=" + encodeURIComponent(rechargeEmail));
+        const data = await res.json();
+
+        if (!Array.isArray(data) || !data.length) {
+          table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#888;">No recharge history found.</td></tr>`;
+          hideSiteBuffer();
+          return;
+        }
+        table.innerHTML = "";
+        data.forEach(history => {
+          const dt = history.timestamp
+            ? new Date(
+                typeof history.timestamp === "number"
+                  ? history.timestamp * 1000
+                  : (history.timestamp._seconds
+                      ? history.timestamp._seconds * 1000
+                      : Date.now())
+              ).toLocaleString()
+            : "";
+          table.innerHTML += `
+            <tr>
+              <td>₹${history.amount}</td>
+              <td>${history.status || ''}</td>
+              <td>${dt}</td>
+              <td>${history.txnId || '-'}</td>
+            </tr>
+          `;
+        });
+      } catch {
+        table.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#e53935;">Failed to load history</td></tr>`;
+      }
+      hideSiteBuffer();
+    }
+
+    // Referral code fetch/display
+    async function fetchSession() {
+      try {
+        const res = await fetch('/session-info');
+        const data = await res.json();
+        const userSnap = await fetch(`/api/user-details`);
+        const userDetails = await userSnap.json();
+        document.getElementById('referralCode').innerText = userDetails.referralCode || 'Not generated';
+      } catch {}
+    }
+
+    // Submit referral code
+    async function submitReferralCode() {
+      const code = document.getElementById('referralInput').value.trim().toUpperCase();
+      if (!code) return alert('Please enter a referral code.');
+      try {
+        const res = await fetch('/submit-referral', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        const text = await res.text();
+        document.getElementById('referralStatus').innerText = text;
+      } catch {
+        document.getElementById('referralStatus').innerText = "❌ Failed to submit referral code.";
+      }
+    }
+
+    // Initial app load
+    window.addEventListener('DOMContentLoaded', () => {
+      showSiteBuffer();
+      Promise.all([loadUserInfo(), fetchSession()])
+        .finally(() => {
+          showTab('subs');
+          setTimeout(hideSiteBuffer, 400);
+        });
+    });
   </script>
+
 </body>
 </html>
