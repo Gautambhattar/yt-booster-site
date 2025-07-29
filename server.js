@@ -8,7 +8,214 @@ require('dotenv').config();
 const { getFirestore } = require('firebase-admin/firestore');
 
 // Firebase Init
+const serviceAccount = JSON.parse(process.env.FIRconst express = require('express');
+const session = require('express-session');
+const bodyParser = require('body-parser');
+const admin = require('firebase-admin');
+const path = require('path');
+require('dotenv').config();
+
 const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+const db = admin.firestore();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+
+app.use(express.static('public'));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+}));
+
+function ensureAuth(req, res, next) {
+  if (req.session.user) return next();
+  res.redirect('/login.html');
+}
+
+app.post('/sessionLogin', async (req, res) => {
+  try {
+    const decoded = await admin.auth().verifyIdToken(req.body.idToken);
+    req.session.user = decoded;
+
+    const userRef = db.collection('users').doc(decoded.uid);
+    const doc = await userRef.get();
+    if (!doc.exists) {
+      // Initialize user wallet and email if not exist
+      await userRef.set({ wallet: 0, email: decoded.email });
+    }
+
+    res.send('Login success');
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(401).send('Unauthorized');
+  }
+});
+
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/dashboard', ensureAuth, (_, res) => res.sendFile(path.join(__dirname, 'views', 'dashboard.html')));
+app.get('/admin', ensureAuth, (req, res) => {
+  if (req.session.user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
+  res.sendFile(path.join(__dirname, 'views', 'admin.html'));
+});
+app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login.html')));
+
+// User session info including wallet and email
+app.get('/session-info', ensureAuth, async (req, res) => {
+  try {
+    const uid = req.session.user.uid;
+    const doc = await db.collection('users').doc(uid).get();
+    const wallet = doc.exists ? doc.data().wallet || 0 : 0;
+    res.json({ email: req.session.user.email, balance: wallet, role: req.session.user.email === ADMIN_EMAIL ? 'admin' : 'user' });
+  } catch (err) {
+    res.status(500).send('Failed to get session info');
+  }
+});
+
+// Place order: Check wallet balance, deduct, create order
+app.post('/place-order', ensureAuth, async (req, res) => {
+  try {
+    const { url, service, amount } = req.body;
+    const uid = req.session.user.uid;
+    const orderAmount = parseInt(amount);
+
+    if (!url || !service || !orderAmount || orderAmount <= 0) {
+      return res.status(400).send('Invalid order data');
+    }
+
+    const userRef = db.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+    const balance = userDoc.exists ? userDoc.data().wallet || 0 : 0;
+
+    if (balance < orderAmount) return res.send('❌ Not enough balance. Please recharge.');
+
+    // Atomic update with Firestore transaction
+    await db.runTransaction(async (t) => {
+      const doc = await t.get(userRef);
+      const currentBalance = doc.data().wallet || 0;
+      if (currentBalance < orderAmount) throw new Error('Insufficient balance');
+      t.update(userRef, { wallet: currentBalance - orderAmount });
+      const ordersRef = db.collection('orders').doc();
+      t.set(ordersRef, {
+        uid,
+        email: req.session.user.email,
+        url,
+        service,
+        amount: orderAmount,
+        status: 'pending',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        message: '',
+      });
+    });
+
+    res.send('✅ Order placed successfully!');
+  } catch (err) {
+    console.error('Place order error:', err);
+    res.status(500).send('⚠️ Order failed');
+  }
+});
+
+// Get user's orders sorted by creation date
+app.get('/my-orders', ensureAuth, async (req, res) => {
+  try {
+    const uid = req.session.user.uid;
+    const snapshot = await db.collection('orders')
+      .where('uid', '==', uid)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(orders);
+  } catch (err) {
+    console.error('Get my orders:', err);
+    res.status(500).send('Failed to get orders');
+  }
+});
+
+// Manual recharge request with UTR for admin approval
+app.post('/manual-recharge-request', ensureAuth, async (req, res) => {
+  try {
+    const { amount, email, mobile, utr, method } = req.body;
+    if (!amount || !email || !mobile || !utr) {
+      return res.status(400).send('Missing recharge data');
+    }
+    await db.collection('rechargeRequests').add({
+      email,
+      amount: parseInt(amount),
+      mobile,
+      utr,
+      method,
+      status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    res.json({ ok: true, message: 'Recharge request submitted for admin approval' });
+  } catch (err) {
+    console.error('Recharge request error:', err);
+    res.status(500).send('Failed to submit recharge request');
+  }
+});
+
+// Admin routes validation middleware
+function ensureAdmin(req, res, next) {
+  if (!req.session.user || req.session.user.email !== ADMIN_EMAIL) {
+    return res.status(403).send('Forbidden');
+  }
+  next();
+}
+
+// Admin: get all orders
+app.get('/admin-orders', ensureAuth, ensureAdmin, async (req, res) => {
+  try {
+    const snapshot = await db.collection('orders').orderBy('createdAt', 'desc').get();
+    const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(orders);
+  } catch (err) {
+    console.error('Admin get orders error:', err);
+    res.status(500).send('Admin order fetch failed');
+  }
+});
+
+// Admin: update order status/message
+app.post('/update-order', ensureAuth, ensureAdmin, async (req, res) => {
+  try {
+    const { orderId, status, message } = req.body;
+    if (!orderId || !status) return res.status(400).send('Missing parameters');
+    await db.collection('orders').doc(orderId).update({ status, message: message || '' });
+    res.send('✅ Order updated');
+  } catch (err) {
+    console.error('Admin update order error:', err);
+    res.status(500).send('❌ Update failed');
+  }
+});
+
+// Admin: update user wallet
+app.post('/admin-update-wallet', ensureAuth, ensureAdmin, async (req, res) => {
+  try {
+    const { email, balance } = req.body;
+    if (!email || balance === undefined) return res.status(400).send('Missing parameters');
+    const usersRef = db.collection('users');
+    const snap = await usersRef.where('email', '==', email).get();
+    if (snap.empty) return res.status(404).send('User not found');
+    await snap.docs[0].ref.update({ wallet: parseInt(balance) });
+    res.send('✅ Wallet updated');
+  } catch (err) {
+    console.error('Admin update wallet error:', err);
+    res.status(500).send('❌ Failed to update wallet');
+  }
+});
+
+// Add additional APIs as per your frontend requirements here...
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+EBASE_CONFIG);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
