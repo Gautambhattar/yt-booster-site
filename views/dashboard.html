@@ -390,6 +390,17 @@
       }
       if (id === 'refer') fetchSession(); // refresh referral code
     }
+    async function openCustomCheckout(e) {
+  // ...existing...
+  try {
+    const res = await fetch('/payment-info');
+    const data = await res.json();
+    document.getElementById('upiIdShow').innerText = data.upiId || 'N/A';
+    document.getElementById('qrImgUser').src = data.qrImageUrl || '/qr.png';
+  } catch {}
+  // ...rest of logic...
+}
+
 
     // Load user info including balance, email, etc.
     async function loadUserInfo() {
