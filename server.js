@@ -20,20 +20,31 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 // -- Multer for QR uploads --
 const upload = multer({ dest: path.join(__dirname, 'public', 'uploads') });
 
-// --- Middleware ---
+// --- Middleware: Static, Parsing ---
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// --- Real-World Session Cookie Config ---
+//  - secure: true for 'production' (Render/etc, HTTPS required)
+//  - sameSite: 'none' for cross-site if needed, else 'lax'
 app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    secure: process.env.NODE_ENV === 'production', // Render: 'production'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
+
+// --- Debug Logging Middleware: What is the Session? (Remove for prod) ---
+app.use((req, res, next) => {
+  // Uncomment for live debug:
+  // console.log(`[${req.method}] ${req.url} session:`, req.session.user);
+  next();
+});
 
 // --- Auth Middlewares ---
 function ensureAuth(req, res, next) {
@@ -45,18 +56,19 @@ function ensureAdmin(req, res, next) {
   res.status(403).send('Forbidden: Admin access required.');
 }
 
-// --- Static Entry Points ---
+// --- Main Page Endpoints ---
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/dashboard', ensureAuth, (req, res) => res.sendFile(path.join(__dirname, 'views', 'dashboard.html')));
 app.get('/admin', ensureAuth, ensureAdmin, (req, res) => res.sendFile(path.join(__dirname, 'views', 'admin.html')));
 app.get('/logout', (req, res) => req.session.destroy(() => res.redirect('/login.html')));
 
-// --- Firebase Session Login ---
+// --- Firebase Session Login (MUST use credentials: 'include' in fetch) ---
 app.post('/sessionLogin', async (req, res) => {
   try {
     if (!req.body.idToken) return res.status(400).send('idToken missing');
     const decoded = await admin.auth().verifyIdToken(req.body.idToken);
     req.session.user = decoded;
+    console.log('Session set for:', decoded.email); // Debug
     const userRef = db.collection('users').doc(decoded.uid);
     const doc = await userRef.get();
     if (!doc.exists) {
@@ -201,7 +213,6 @@ app.post('/manual-recharge-request', ensureAuth, async (req, res) => {
 });
 
 // --- SUPPORT CHAT LOGIC ---
-// Get support messages (user or admin with ?user param)
 app.get('/support-messages', ensureAuth, async (req, res) => {
   try {
     let forEmail = req.session.user.email;
@@ -216,7 +227,6 @@ app.get('/support-messages', ensureAuth, async (req, res) => {
     res.status(500).send('Failed to fetch messages');
   }
 });
-// List support users (for admin)
 app.get('/support-users', ensureAuth, ensureAdmin, async (req, res) => {
   try {
     const snaps = await db.collection('supportMessages').get();
@@ -226,7 +236,6 @@ app.get('/support-users', ensureAuth, ensureAdmin, async (req, res) => {
     res.status(500).send('Failed to fetch support users');
   }
 });
-// Send support message (user or admin to specific user)
 app.post('/support-message', ensureAuth, async (req, res) => {
   try {
     const { message, to } = req.body;
@@ -288,7 +297,6 @@ app.post('/submit-referral', ensureAuth, async (req, res) => {
 });
 
 // --- ADMIN PANEL ENDPOINTS ---
-// List all orders
 app.get('/admin-orders', ensureAuth, ensureAdmin, async (req, res) => {
   try {
     const snapshot = await db.collection('orders').orderBy('createdAt', 'desc').get();
@@ -362,7 +370,6 @@ function genReferralCode(email) {
   return (email.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8) + Math.floor(100 + Math.random() * 900)).slice(0, 10);
 }
 
-// --- Listen ---
 app.listen(PORT, () => {
   console.log(`✅ Server is running on http://localhost:${PORT}`);
 });
