@@ -80,6 +80,8 @@
     <button onclick="showTab('rechargeRequests')">💸 Recharge Requests</button>
     <button onclick="showTab('recharge')">💰 Manual Recharge</button>
     <button onclick="showTab('adminReferrals')">✨ Referral Bonuses</button>
+    <button onclick="showTab('paymentSettings')">⚙️ Payment Settings</button>
+
   </div>
 
   <!-- Orders Tab -->
@@ -122,6 +124,20 @@
     <p id="rechargeMsg" style="margin-top: 10px;"></p>
   </div>
 
+  <div class="tab-content" id="paymentSettings">
+  <h3>⚙️ Payment Settings</h3>
+  <form id="paymentSettingsForm" enctype="multipart/form-data" onsubmit="return updatePaymentSettings(event)">
+    <label>UPI ID:</label><br>
+    <input type="text" id="editUpiId" name="upiId" required><br>
+    <label>QR Code Image (optional):</label><br>
+    <input type="file" id="editQrImg" name="qrImage" accept="image/*"><br><br>
+    <img id="currentQrImg" src="" style="max-width:140px;display:none;"><br>
+    <button type="submit" class="update-btn">Save</button>
+    <p id="paymentSettingsMsg"></p>
+  </form>
+</div>
+
+
   <!-- Referral Bonuses Tab -->
   <div id="adminReferrals" class="tab-content">
     <h3>✨ Pending Referral Bonuses</h3>
@@ -129,6 +145,47 @@
   </div>
 
   <script>
+    function showTab(tab) {
+  // ...existing code...
+  if (tab === 'paymentSettings') loadPaymentSettings();
+}
+
+async function loadPaymentSettings() {
+  document.getElementById('paymentSettingsMsg').innerText = '';
+  try {
+    const res = await fetch('/payment-info');
+    const data = await res.json();
+    document.getElementById('editUpiId').value = data.upiId || '';
+    if (data.qrImageUrl) {
+      document.getElementById('currentQrImg').src = data.qrImageUrl;
+      document.getElementById('currentQrImg').style.display = '';
+    } else {
+      document.getElementById('currentQrImg').style.display = 'none';
+    }
+  } catch {
+    document.getElementById('paymentSettingsMsg').innerText = 'Failed to load';
+  }
+}
+
+async function updatePaymentSettings(event) {
+  event.preventDefault();
+  const form = document.getElementById('paymentSettingsForm');
+  const formData = new FormData(form);
+  document.getElementById('paymentSettingsMsg').innerText = 'Saving...';
+  try {
+    const res = await fetch('/admin/update-payment-info', {
+      method: 'POST',
+      body: formData
+    });
+    const text = await res.text();
+    document.getElementById('paymentSettingsMsg').innerText = text;
+    loadPaymentSettings();
+  } catch (err) {
+    document.getElementById('paymentSettingsMsg').innerText = 'Failed: ' + err.message;
+  }
+  return false;
+}
+
     function showTab(tab) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.getElementById(tab).classList.add('active');
